@@ -30,11 +30,22 @@ fi
 PUPPETEER_CONFIG="$HERE/scripts/puppeteer-config.json"
 
 render_diagrams() {
-    local mmd png changed=0
+    local mmd png sum changed=0
     shopt -s nullglob
     for mmd in "$HERE"/*/diagrams/*.mmd; do
         png="${mmd%.mmd}.png"
-        [[ -f "$png" && "$png" -nt "$mmd" ]] && continue
+        sum="${mmd}.sha256"
+        # Staleness is decided by the SOURCE's content hash, not by mtimes: git
+        # does not preserve mtimes, so after a clone every .png looks older than
+        # its .mmd and everything would re-render. That matters because mermaid
+        # output is not byte-reproducible — a needless re-render leaves a dirty
+        # tree and demands mmdc from someone who only wanted to build the PDFs.
+        # Checked from the diagram's own directory: the hash file records a bare
+        # filename, so shasum -c only resolves it from there.
+        if [[ -f "$png" && -f "$sum" ]] && \
+           ( cd "$(dirname "$mmd")" && shasum -a 256 -c "$(basename "$sum")" ) >/dev/null 2>&1; then
+            continue
+        fi
         changed=1
         if ! command -v mmdc >/dev/null; then
             echo "mmdc not found, but $(basename "$mmd") needs rendering." >&2
@@ -50,6 +61,7 @@ render_diagrams() {
         fi
         echo "==> $(basename "$mmd")"
         mmdc -p "$PUPPETEER_CONFIG" -i "$mmd" -o "$png" --scale 3 >/dev/null
+        ( cd "$(dirname "$mmd")" && shasum -a 256 "$(basename "$mmd")" > "$(basename "$sum")" )
     done
     shopt -u nullglob
     [[ $changed -eq 0 ]] && echo "==> diagrams up to date"

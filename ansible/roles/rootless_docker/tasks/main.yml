@@ -1,0 +1,93 @@
+---
+# Docker Engine is installed system-wide but never run as a system daemon.
+# Membership in the `docker` group is equivalent to root on the host — any
+# member can bind-mount / into a container and write anywhere as root — so on a
+# box where several developers hold projects under different client NDAs, a
+# shared root daemon reduces that separation to convention. Each user gets their
+# own daemon in their own user namespace instead.
+
+- name: Install Docker Engine and the rootless extras
+  ansible.builtin.shell:
+    cmd: curl -fsSL https://get.docker.com | sh
+    creates: /usr/bin/dockerd-rootless-setuptool.sh
+
+- name: Mask the system Docker daemon
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+    masked: true
+  loop:
+    - docker.service
+    - docker.socket
+
+- name: Ensure nobody is a member of the docker group
+  ansible.builtin.command: "gpasswd -M '' docker"
+  changed_when: false
+
+# Ubuntu 24.04 introduced kernel.apparmor_restrict_unprivileged_userns. It
+# transitions any unconfined process that creates a user namespace into the
+# `unprivileged_userns` AppArmor profile, which denies the /proc/self/exe
+# re-exec rootlesskit performs:
+#
+#   apparmor="DENIED" operation="exec" profile="unprivileged_userns"
+#   name="/proc/self/exe" comm="rootlesskit" requested_mask="x"
+#
+# The per-binary profile Docker's own installer suggests does NOT fix this on
+# Ubuntu 26.04 (kernel 7.0) — verified on a clean box: the profile loads,
+# aa-status reports /usr/bin/rootlesskit in unconfined mode, and the transition
+# still happens. Adding attach_disconnected to the distro's unprivileged_userns
+# profile clears the denial but leaves rootlesskit hanging, and edits to a
+# packaged profile are reverted by apt upgrades.
+#
+# So the restriction is lifted box-wide. That is a genuine reduction in kernel
+# attack surface and it is accepted deliberately: unprivileged user namespaces
+# are the mechanism rootless Docker is built on, and rootless Docker is what
+# gives each developer an isolated daemon instead of a root-equivalent shared
+# one. A box that cannot create unprivileged user namespaces cannot run this
+# platform at all.
+- name: Check whether this kernel has the AppArmor userns restriction
+  ansible.builtin.stat:
+    path: /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+  register: dev_userns_knob
+
+- name: Permit unprivileged user namespaces
+  when: dev_userns_knob.stat.exists
+  ansible.posix.sysctl:
+    name: kernel.apparmor_restrict_unprivileged_userns
+    value: "0"
+    sysctl_file: /etc/sysctl.d/99-dev-platform-userns.conf
+    state: present
+    reload: true
+
+- name: Read the passwd database
+  ansible.builtin.getent:
+    database: passwd
+
+# Whatever the release, the property the platform needs is that an
+# unprivileged process can create a user namespace. Checked directly.
+- name: Unprivileged user namespaces can be created
+  ansible.builtin.command: unshare --user --map-root-user true
+  become: true
+  become_user: nobody
+  changed_when: false
+
+  check_mode: false
+# Root-owned, world-traversable parent; each account gets a private
+# subdirectory below it (per_user.yml). Created here, once, so the first
+# account's directory does not become the parent's owner.
+- name: Create the shared image-store parent on the data disk
+  ansible.builtin.file:
+    path: "{{ dev_docker_data_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: dev_docker_data_root is defined
+
+- name: Set up a rootless daemon for each account
+  ansible.builtin.include_tasks: per_user.yml
+  loop: "{{ dev_rootless_accounts }}"
+  loop_control:
+    loop_var: dev_account
+    label: "{{ dev_account }}"

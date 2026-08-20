@@ -1,0 +1,28 @@
+---
+# Platform constants. These are the platform's own values, loaded from beside
+# site.yml, and a deployment cannot override them — playbook-adjacent group_vars
+# outrank inventory group_vars. That is deliberate: these are decisions the
+# platform makes once so every deployment behaves the same way.
+#
+# Anything a deployment legitimately chooses — who its people are, where its
+# repository lives, what timezone its boxes keep — is NOT here. It lives in the
+# deployment's own inventory/group_vars/all.yml. The two files share no keys.
+
+# --- Port blocks -------------------------------------------------------------
+# Each user gets 100 host ports starting at base + (uid - 1000) * 100.
+dev_port_block_base: 20000
+dev_port_block_size: 100
+
+# --- Paths -------------------------------------------------------------------
+dev_registry_data_dir: "/srv/registry"
+dev_e2e_home: "/srv/e2e"
+dev_repo_deploy_key: "/etc/dev-platform/deploy_key"
+dev_pull_host_vars_file: "/etc/dev-platform/host.yml"
+dev_pull_checkout_dir: "/var/lib/dev-platform/repo"
+
+# --- Toolchain ---------------------------------------------------------------
+# The platform installs version MANAGERS per user and never a runtime: Java,
+# Node and Python versions belong to each project's repository and are installed
+# by the developer. pnpm is the one binary the playbook downloads itself, so it
+# is pinned here — explicitly, and bumped deliberately.
+dev_pnpm_version: "11.21.0"

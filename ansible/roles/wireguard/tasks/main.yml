@@ -1,0 +1,43 @@
+---
+# Guarded with a block rather than `meta: end_host` — that would end the play
+# for this host and silently skip every role after this one.
+
+- name: Configure the WireGuard hub client
+  when: dev_wireguard_enabled | bool
+  block:
+
+    - name: Install WireGuard
+      ansible.builtin.apt:
+        name: wireguard
+        state: present
+
+    # The specification treats a missing keepalive as broken remote access, not
+    # degraded remote access: the box sits behind NAT, and without it the hub
+    # loses the return path and inbound SSH fails until the box next sends
+    # traffic.
+    - name: Client config declares PersistentKeepalive
+      ansible.builtin.assert:
+        that:
+          - dev_wireguard_config is search('PersistentKeepalive')
+        fail_msg: >-
+          dev_wireguard_config has no PersistentKeepalive. This box is behind
+          NAT; without it the hub loses the return path and inbound SSH stops
+          working until the box happens to send traffic. Add
+          'PersistentKeepalive = 25' to the peer section of the config issued
+          by the hub.
+        quiet: true
+
+    - name: Install client config
+      ansible.builtin.copy:
+        dest: /etc/wireguard/wg0.conf
+        content: "{{ dev_wireguard_config }}"
+        owner: root
+        group: root
+        mode: "0600"
+      notify: Restart wireguard
+
+    - name: Enable the tunnel
+      ansible.builtin.systemd_service:
+        name: wg-quick@wg0
+        enabled: true
+        state: started

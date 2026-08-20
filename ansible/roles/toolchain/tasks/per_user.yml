@@ -1,0 +1,77 @@
+---
+- name: "Resolve home for {{ dev_account }}"
+  ansible.builtin.set_fact:
+    dev_home: "{{ ansible_facts.getent_passwd[dev_account][4] }}"
+
+- name: "Create the working directories for {{ dev_account }}"
+  ansible.builtin.file:
+    path: "{{ dev_home }}/{{ item }}"
+    state: directory
+    owner: "{{ dev_account }}"
+    group: "{{ dev_account }}"
+    mode: "0755"
+  loop:
+    - src                    # canonical checkouts — read-only by rule
+    - wt                     # worktrees, one per active task
+    - bin
+    - .local/bin             # uv, claude
+    - .local/share/pnpm      # this user's Node version + content-addressable store
+    - .local/share/pnpm/bin  # pnpm's global bin dir; must exist and be on PATH
+
+- name: "Install SDKMAN for {{ dev_account }}"
+  become: true
+  become_user: "{{ dev_account }}"
+  ansible.builtin.shell:
+    cmd: curl -s https://get.sdkman.io | bash
+    creates: "{{ dev_home }}/.sdkman/bin/sdkman-init.sh"
+  environment:
+    HOME: "{{ dev_home }}"
+
+# No runtime is installed here — see main.yml. SDKMAN is present so the
+# developer can `sdk env install` from a project's .sdkmanrc; PNPM_HOME is
+# created so `pnpm env use --global <version>` works on first login; uv
+# installs Python interpreters on demand.
+
+- name: "Install uv for {{ dev_account }}"
+  become: true
+  become_user: "{{ dev_account }}"
+  ansible.builtin.shell:
+    cmd: curl -LsSf https://astral.sh/uv/install.sh | sh
+    creates: "{{ dev_home }}/.local/bin/uv"
+  environment:
+    HOME: "{{ dev_home }}"
+
+# Piped into bash, not sh: the installer uses bash syntax and /bin/sh is dash
+# on Ubuntu, which fails with `Syntax error: "(" unexpected`.
+- name: "Install Claude Code for {{ dev_account }}"
+  become: true
+  become_user: "{{ dev_account }}"
+  ansible.builtin.shell:
+    cmd: curl -fsSL https://claude.ai/install.sh | bash
+    creates: "{{ dev_home }}/.local/bin/claude"
+  environment:
+    HOME: "{{ dev_home }}"
+
+- name: "Install tmux configuration for {{ dev_account }}"
+  ansible.builtin.copy:
+    dest: "{{ dev_home }}/.tmux.conf"
+    owner: "{{ dev_account }}"
+    group: "{{ dev_account }}"
+    mode: "0644"
+    force: false
+    content: |
+      # Managed by Ansible — initial content only, edit freely.
+      #
+      # monitor-bell flags a window with '!' when its agent rings the terminal
+      # bell, so the status bar becomes the "which task is blocked on me"
+      # indicator. Without it you cycle through windows to find out.
+      set -g monitor-bell on
+      set -g visual-bell off
+
+      # tmux redraws the screen in place, so the terminal emulator never
+      # accumulates scrollback and its scrollbar does nothing. Mouse mode makes
+      # the wheel enter tmux's own scroll mode instead.
+      set -g mouse on
+
+      set -g history-limit 50000
+      set -g base-index 1

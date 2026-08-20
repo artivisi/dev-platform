@@ -1,0 +1,416 @@
+#!/usr/bin/env python3
+"""Change someone's access to the fleet, at one of three levels.
+
+    scripts/access grant   <name> --key '<pubkey>' --box <box>   create the account
+    scripts/access revoke  <name> [--key SUBSTR]   suspend; keep the account and files
+    scripts/access restore <name> --key '<pubkey>' give access back
+    scripts/access purge   <name>                  delete the account AND its home
+    scripts/access prune   <name>                  after purge: drop from the roster
+
+Run from a checkout on the operator's machine, against the inventory. Never on a
+box: a box holds a READ-ONLY deploy key, so it could not push the roster change,
+and without that change the next ansible-pull would undo whatever it just did.
+The repository is the source of truth; access is a change to it.
+
+Which level to use
+------------------
+grant    A new person. Adds them to the roster and to a box, applies it, and
+         mints their VPN peer — the whole of "bringing someone up" in one
+         command. Prints the WireGuard config to hand them.
+
+revoke   A key is lost or compromised. The account, the home directory and every
+         file survive; authorized_keys is emptied so nothing can log in. This is
+         the state to hold someone in while a replacement key is on its way, and
+         it is reversible with `restore`. Use --key to drop one device's key when
+         they have several and the others are still trusted.
+
+purge    The person is leaving. DELETES the home directory — repositories,
+         worktrees, image store, caches, credentials, agent history. Nothing is
+         archived and nothing can be undone.
+
+prune    Housekeeping after purge. preflight requires every name in
+         dev_users_absent to still be in dev_people, so the roster entry has to
+         outlive the removal; this drops it once the account is actually gone.
+"""
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+INV = os.path.join(ROOT, "ansible", "inventory")
+ALL_YML = os.path.join(INV, "group_vars", "all.yml")
+HOST_VARS = os.path.join(INV, "host_vars")
+def default_hub():
+    """The hub's ssh target, read from the deployment's inventory.
+
+    Not a constant in this script: the script is platform code, shared by every
+    organisation, and the hub belongs to one of them. Set dev_hub_ssh in the
+    deployment's inventory/group_vars/all.yml, or pass --hub.
+    """
+    try:
+        s = read(os.path.join(INV, "group_vars", "all.yml"))
+    except OSError:
+        return None
+    m = re.search(r'^dev_hub_ssh:\s*["\']?([^"\'\n]+)', s, re.M)
+    return m.group(1).strip() if m else None
+
+
+def die(msg):
+    print("access: " + msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def read(p):
+    with open(p, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def write(p, t):
+    with open(p, "w", encoding="utf-8") as fh:
+        fh.write(t)
+
+
+def git(*args):
+    subprocess.run(["git"] + list(args), cwd=ROOT, check=True)
+
+
+def person_block(text, name):
+    """The `  <name>:` mapping and everything indented under it."""
+    m = re.search(r"^  %s:[ \t]*\n((?:    .*\n|[ \t]*\n(?=    ))*)" % re.escape(name),
+                  text, re.M)
+    return m
+
+
+def get_keys(text, name):
+    m = person_block(text, name)
+    if not m:
+        return None
+    return re.findall(r'^      - +"(.*)"[ \t]*$', m.group(1), re.M)
+
+
+def set_keys(text, name, keys):
+    m = person_block(text, name)
+    if not m:
+        die("'%s' is not in dev_people" % name)
+    body = "  %s:\n    ssh_keys:%s\n" % (
+        name,
+        " []" if not keys else "\n" + "\n".join('      - "%s"' % k for k in keys))
+    return text[:m.start()] + body + text[m.end():]
+
+
+def list_items(text, key):
+    m = re.search(r"^%s:[ \t]*(\[\])?[ \t]*$" % re.escape(key), text, re.M)
+    if not m:
+        return None, None
+    if m.group(1):
+        return [], m
+    items = []
+    for line in text[m.end():].split("\n")[1:]:
+        e = re.match(r"^[ \t]*-[ \t]*(\S+)[ \t]*$", line)
+        if e:
+            items.append(e.group(1))
+        elif line.strip() and not line.lstrip().startswith("#"):
+            break
+    return items, m
+
+
+def set_list(text, key, names):
+    items, m = list_items(text, key)
+    if m is None:
+        die("no '%s:' key in that host_vars file" % key)
+    end = m.end()
+    if not m.group(1):
+        for line in text[m.end():].split("\n")[1:]:
+            if re.match(r"^[ \t]*-[ \t]*\S+[ \t]*$", line):
+                end += len(line) + 1
+            else:
+                break
+    body = "%s: []" % key if not names else "%s:\n%s" % (
+        key, "\n".join("  - " + n for n in names))
+    return text[:m.start()] + body + text[end:]
+
+
+def boxes_with(name, key="dev_users"):
+    out = []
+    for fn in sorted(os.listdir(HOST_VARS)):
+        if not fn.endswith(".yml") or fn.startswith("EXAMPLE"):
+            continue
+        items, _ = list_items(read(os.path.join(HOST_VARS, fn)), key)
+        if items and name in items:
+            out.append(fn[:-4])
+    return out
+
+
+def apply(boxes, what):
+    """Run the users role against each box.
+
+    Per-box secrets live ON the box in /etc/dev-platform/host.yml and never in
+    this repository, so a push run has to be given them with -e @file. They are
+    fetched over SSH into a private temporary file and deleted straight after,
+    rather than asking the operator to keep a copy lying around.
+    """
+    import tempfile
+    for box in boxes:
+        host = box_address(box)
+        fd, tmp = tempfile.mkstemp(prefix="%s-" % box, suffix=".yml")
+        os.close(fd)
+        os.chmod(tmp, 0o600)
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                r = subprocess.run(
+                    ["ssh", "-o", "BatchMode=yes", "root@%s" % host,
+                     "cat /etc/dev-platform/host.yml"], stdout=fh)
+            if r.returncode != 0 or os.path.getsize(tmp) == 0:
+                die("could not read /etc/dev-platform/host.yml from %s. The run "
+                    "needs it: preflight requires every value and this repository "
+                    "holds no secrets." % box)
+            print("  applying %s on %s ..." % (what, box))
+            subprocess.run(["ansible-playbook", "-i", "inventory/hosts.ini",
+                            "-e", "@" + tmp, "--limit", box, "--tags", "users",
+                            "site.yml"],
+                           cwd=os.path.join(ROOT, "ansible"), check=True)
+        finally:
+            os.unlink(tmp)
+
+
+def box_address(box):
+    """ansible_host for a box, straight out of hosts.ini."""
+    ini = read(os.path.join(INV, "hosts.ini"))
+    m = re.search(r"^%s\s+.*?ansible_host=(\S+)" % re.escape(box), ini, re.M)
+    if not m:
+        die("no ansible_host for '%s' in inventory/hosts.ini" % box)
+    return m.group(1)
+
+
+def drop_peer(hub, name):
+    probe = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", hub,
+         "sudo -n grep -qx '# peer: %s' /etc/wireguard/wg0.conf" % name])
+    if probe.returncode == 0:
+        subprocess.run(["ssh", "-o", "BatchMode=yes", hub,
+                        "sudo -n /usr/local/sbin/wg-remove-peer %s" % name], check=True)
+    else:
+        print("  no VPN peer '%s' on the hub — skipped" % name)
+
+
+def require_reachable(hub, boxes):
+    """Check every machine this run will touch, BEFORE changing anything.
+
+    Learned the hard way: `grant` created an account, pushed the commit, ran the
+    playbook, and only then discovered it could not reach the hub — leaving a
+    person with a shell account and no way to reach it. Anything that mutates
+    state must prove its dependencies first.
+    """
+    targets = [("hub", hub)] + [("box " + b, "root@" + box_address(b)) for b in boxes]
+    for what, target in targets:
+        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                            target, "true"], capture_output=True, text=True)
+        if r.returncode != 0:
+            msg = (r.stderr or "").strip().splitlines()[-1:] or ["unreachable"]
+            die("cannot reach the %s (%s): %s\n"
+                "  Nothing has been changed. Fix that, then run this again.\n"
+                "  If it says 'Host key verification failed', ssh there once by "
+                "hand first so the key is recorded." % (what, target, msg[0]))
+
+
+def require_clean():
+    if subprocess.run(["git", "diff", "--quiet", "HEAD"], cwd=ROOT).returncode != 0:
+        die("the working tree has uncommitted changes; commit or stash them so "
+            "this lands as its own commit")
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True)
+    ap.add_argument("level", choices=["grant", "revoke", "restore", "purge", "prune"])
+    ap.add_argument("name")
+    ap.add_argument("--key", help="revoke: substring identifying one key to drop. "
+                                  "restore: the full public key line to add.")
+    ap.add_argument("--box", help="grant: which box to place them on")
+    ap.add_argument("--hub", default=default_hub(),
+                    help="ssh target of the WireGuard hub; defaults to "
+                         "dev_hub_ssh from the deployment inventory")
+    ap.add_argument("--yes", action="store_true")
+    a = ap.parse_args()
+    name, lvl = a.name, a.level
+
+    if not a.hub:
+        die("no hub known. Set dev_hub_ssh in inventory/group_vars/all.yml, or "
+            "pass --hub <user@host>. This script is platform code and holds no "
+            "organisation's addresses.")
+    require_clean()
+    roster = read(ALL_YML)
+    keys = get_keys(roster, name)
+    if keys is None and lvl not in ("prune", "grant"):
+        die("'%s' is not in dev_people (%s)" % (name, ALL_YML))
+
+    if lvl == "grant":
+        if not re.match(r"^[a-z][a-z0-9-]{0,31}$", name):
+            die("account names are lowercase letters, digits and hyphens")
+        if keys is not None:
+            die("'%s' is already in dev_people — use restore to add another key" % name)
+        if not a.key:
+            die("grant needs --key '<the full public key line>'")
+        if not re.match(r"^(ssh-(ed25519|rsa)|ecdsa-sha2-nistp\d+) [A-Za-z0-9+/]+=*", a.key):
+            die("that does not look like a public key line. If it has BEGIN/END "
+                "lines it is the PRIVATE key — do not put that here, and tell them "
+                "to generate a new pair.")
+        if not a.box:
+            die("grant needs --box <box>; the boxes are in inventory/hosts.ini")
+        hv = os.path.join(HOST_VARS, a.box + ".yml")
+        if not os.path.exists(hv):
+            die("no host_vars for '%s' (%s)" % (a.box, hv))
+        require_reachable(a.hub, [a.box])
+
+        # roster: append, or replace the empty mapping
+        entry = '  %s:\n    ssh_keys:\n      - "%s"\n' % (name, a.key)
+        if re.search(r"^dev_people:[ \t]*\{\}[ \t]*$", roster, re.M):
+            roster = re.sub(r"^dev_people:[ \t]*\{\}[ \t]*$",
+                            "dev_people:\n" + entry.rstrip("\n"), roster, count=1, flags=re.M)
+        else:
+            m = re.search(r"^dev_people:[ \t]*$", roster, re.M)
+            end = m.end() + 1
+            while True:
+                nxt = roster.find("\n", end)
+                line = roster[end:nxt if nxt != -1 else len(roster)]
+                if line.startswith("  ") or (line.strip() == "" and roster[nxt+1:nxt+3] == "  "):
+                    end = (nxt + 1) if nxt != -1 else len(roster)
+                else:
+                    break
+            roster = roster[:end] + entry + roster[end:]
+        write(ALL_YML, roster)
+
+        t = read(hv)
+        users, _ = list_items(t, "dev_users")
+        write(hv, set_list(t, "dev_users", sorted((users or []) + [name])))
+        print("  roster: added %s" % name)
+        print("  %s: dev_users += %s" % (a.box, name))
+
+        git("commit", "-qam", "Grant %s an account on %s" % (name, a.box))
+        git("push", "-q", "origin", "main")
+        apply([a.box], "new account")
+
+        print("  minting a VPN peer ...")
+        conf = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", a.hub,
+             "sudo -n /usr/local/sbin/wg-add-peer %s --person" % name],
+            capture_output=True, text=True, check=True).stdout
+        out = os.path.join(os.path.expanduser("~"), "Downloads", "%s-vpn.conf" % name)
+        old_umask = os.umask(0o077)
+        try:
+            write(out, conf)
+        finally:
+            os.umask(old_umask)
+        print("""
+Done. Give %s:
+  - their VPN config:  %s   (send it over something encrypted, then delete it)
+  - their username:    %s
+  - the box address:   in inventory/hosts.ini
+  - the Developer Guide, Recipe 1 onwards
+""" % (name, out, name))
+
+    elif lvl == "revoke":
+        if not keys:
+            die("'%s' already has no keys — already suspended" % name)
+        if a.key:
+            keep = [k for k in keys if a.key not in k]
+            if len(keep) == len(keys):
+                die("no key of '%s' matches %r" % (name, a.key))
+            gone = len(keys) - len(keep)
+        else:
+            keep, gone = [], len(keys)
+        require_reachable(a.hub, boxes_with(name))
+        if not a.yes:
+            print("\nSuspend '%s': drop %d of %d key(s)%s." %
+                  (name, gone, len(keys),
+                   "; %d remain" % len(keep) if keep else ", leaving none"))
+            print("The account, home directory and every file stay untouched.")
+            if not keep:
+                print("They will not be able to log in until a key is restored.")
+            if input("Proceed? [y/N] ").strip().lower() not in ("y", "yes"):
+                die("not confirmed — nothing changed")
+        write(ALL_YML, set_keys(roster, name, keep))
+        git("commit", "-qam", "Revoke %s: %s" % (
+            name, "drop a compromised key" if keep else "suspend all access"))
+        git("push", "-q", "origin", "main")
+        apply(boxes_with(name), "suspension")
+        if not keep:
+            drop_peer(a.hub, name)
+        print("\n'%s' is suspended. Files intact. Restore with:\n"
+              "  scripts/access restore %s --key '<new public key line>'" % (name, name))
+
+    elif lvl == "restore":
+        if not a.key:
+            die("restore needs --key '<the full public key line>'")
+        if not re.match(r"^(ssh-(ed25519|rsa)|ecdsa-sha2-nistp\d+) [A-Za-z0-9+/]+=*", a.key):
+            die("that does not look like a public key line; it must start ssh-ed25519 "
+                "or similar. If it has BEGIN/END lines it is the PRIVATE key — stop.")
+        if a.key in keys:
+            die("that key is already in the roster for '%s'" % name)
+        require_reachable(a.hub, boxes_with(name))
+        write(ALL_YML, set_keys(roster, name, keys + [a.key]))
+        git("commit", "-qam", "Restore access for %s with a replacement key" % name)
+        git("push", "-q", "origin", "main")
+        apply(boxes_with(name), "restored key")
+        print("\n'%s' can log in again. If their VPN peer was removed, mint a new one:\n"
+              "  ssh <hub> sudo wg-add-peer %s --person" % (name, name))
+
+    elif lvl == "purge":
+        boxes = boxes_with(name)
+        if not boxes:
+            die("'%s' is in no box's dev_users — nothing to purge" % name)
+        require_reachable(a.hub, boxes)
+        if not a.yes:
+            print("\nPURGE '%s' from %s." % (name, ", ".join(boxes)))
+            print("  - every process of theirs is terminated")
+            print("  - /home/%s is DELETED, unarchived" % name)
+            print("  - keys, quota and subordinate ranges are removed")
+            print("\nAnything not pushed to GitHub is lost permanently.")
+            if input("Type the name '%s' to proceed: " % name).strip() != name:
+                die("not confirmed — nothing changed")
+        for box in boxes:
+            p = os.path.join(HOST_VARS, box + ".yml")
+            t = read(p)
+            users, _ = list_items(t, "dev_users")
+            absent, _ = list_items(t, "dev_users_absent")
+            t = set_list(t, "dev_users", [n for n in users if n != name])
+            t = set_list(t, "dev_users_absent",
+                         (absent or []) + ([name] if name not in (absent or []) else []))
+            write(p, t)
+            print("  %s: dev_users -> dev_users_absent" % box)
+        git("commit", "-qam", "Purge %s from %s" % (name, ", ".join(boxes)))
+        git("push", "-q", "origin", "main")
+        apply(boxes, "removal")
+        drop_peer(a.hub, name)
+        print("""
+Done. Two things cannot be scripted from here:
+  - GitHub: remove them from the organisation and any repository granted
+    directly. Their personal SSH keys are on their own account; only they can
+    delete those.
+  - When you are satisfied the account is gone:  scripts/access prune %s""" % name)
+
+    elif lvl == "prune":
+        if keys is None:
+            die("'%s' is not in dev_people — already pruned" % name)
+        still = boxes_with(name)
+        if still:
+            die("'%s' is still in dev_users on %s — purge first" % (name, ", ".join(still)))
+        m = person_block(roster, name)
+        write(ALL_YML, roster[:m.start()] + roster[m.end():])
+        for fn in sorted(os.listdir(HOST_VARS)):
+            if not fn.endswith(".yml") or fn.startswith("EXAMPLE"):
+                continue
+            p = os.path.join(HOST_VARS, fn)
+            t = read(p)
+            absent, _ = list_items(t, "dev_users_absent")
+            if absent and name in absent:
+                write(p, set_list(t, "dev_users_absent", [n for n in absent if n != name]))
+        git("commit", "-qam", "Prune %s from the roster" % name)
+        git("push", "-q", "origin", "main")
+        print("pruned '%s' from dev_people and every dev_users_absent" % name)
+
+
+if __name__ == "__main__":
+    main()

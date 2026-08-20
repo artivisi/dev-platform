@@ -1,0 +1,153 @@
+---
+# Hardware-conditional settings. Each is applied only when the box's host_vars
+# declares it — the hardware specification's commissioning runbooks say which
+# machine classes need which. Absence means "not this hardware", not a default.
+
+- name: Never suspend on lid close (laptop class)
+  when: dev_lid_ignore is defined and (dev_lid_ignore | bool)
+  block:
+    - name: Ignore the lid switch
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/logind.conf
+        regexp: '^#?\s*{{ item }}='
+        line: '{{ item }}=ignore'
+      loop:
+        - HandleLidSwitch
+        - HandleLidSwitchExternalPower
+      notify: Restart logind
+
+- name: Fan control for Intel Mac laptops
+  when: dev_mbpfan is defined and (dev_mbpfan | bool)
+  block:
+    - name: Install mbpfan
+      ansible.builtin.apt:
+        name: mbpfan
+        state: present
+    - name: Enable mbpfan
+      ansible.builtin.systemd_service:
+        name: mbpfan
+        enabled: true
+        state: started
+
+- name: Blacklist kernel modules the box must not load
+  when: dev_kernel_module_blacklist is defined
+  block:
+    - name: The blacklist is a list
+      ansible.builtin.assert:
+        that:
+          - dev_kernel_module_blacklist is sequence
+          - dev_kernel_module_blacklist is not string
+        fail_msg: "dev_kernel_module_blacklist must be a list of module names."
+        quiet: true
+    - name: Write the blacklist
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/dev-platform-blacklist.conf
+        mode: "0644"
+        content: |
+          # Managed by Ansible — development-environment (see the Setup Guide).
+          {% for m in dev_kernel_module_blacklist %}
+          blacklist {{ m }}
+          {% endfor %}
+      register: dev_blacklist
+    - name: Rebuild the initramfs
+      ansible.builtin.command: update-initramfs -u
+      when: dev_blacklist.changed
+      changed_when: true
+
+# The installer writes every interface it saw into netplan, and netplan then
+# requires each one to reach `degraded` before systemd-networkd-wait-online
+# finishes. A port with no cable never does, so boot stalls for the unit's full
+# 120s timeout with cloud-init-network blocked behind it — two minutes of a
+# ten-second boot, for a socket nothing is plugged into.
+- name: Interfaces with nothing plugged into them
+  when: dev_network_optional_interfaces is defined
+  block:
+
+    - name: Locate the netplan configuration
+      ansible.builtin.find:
+        paths: /etc/netplan
+        patterns: "*.yaml,*.yml"
+      register: dev_netplan_found
+
+    - name: Exactly one netplan file
+      ansible.builtin.assert:
+        that:
+          - dev_netplan_found.files | length == 1
+        fail_msg: >-
+          Expected one file in /etc/netplan, found
+          {{ dev_netplan_found.files | length }}. This task edits the
+          installer's configuration in place and will not guess which of
+          several files owns an interface.
+        quiet: true
+
+    # Text insertion rather than a YAML round-trip, so subiquity's own comment
+    # and formatting survive. Fails loudly if the interface is not in the file:
+    # a silent no-op here would leave the boot stall in place and look fixed.
+    - name: Mark them optional so boot does not wait for them
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import io, re, sys
+            path, names = sys.argv[1], sys.argv[2].split(",")
+            text = io.open(path, encoding="utf-8").read()
+            changed = False
+            for name in names:
+                m = re.search(r"^(?P<i>\s+)%s:\s*$" % re.escape(name), text, re.M)
+                if not m:
+                    sys.exit("interface %s is not configured in %s" % (name, path))
+                inner = m.group("i") + "  "
+                block_end = len(text)
+                for nxt in re.finditer(r"^\s+\S+:\s*$", text[m.end():], re.M):
+                    if len(re.match(r"^\s*", nxt.group(0)).group(0)) <= len(m.group("i")):
+                        block_end = m.end() + nxt.start()
+                        break
+                if re.search(r"^%soptional:\s*true\s*$" % inner,
+                             text[m.end():block_end], re.M):
+                    continue
+                text = text[:m.end()] + "\n" + inner + "optional: true" + text[m.end():]
+                changed = True
+            if changed:
+                io.open(path, "w", encoding="utf-8").write(text)
+                print("CHANGED")
+          - "{{ dev_netplan_found.files[0].path }}"
+          - "{{ dev_network_optional_interfaces | join(',') }}"
+      register: dev_netplan_opt
+      changed_when: "'CHANGED' in dev_netplan_opt.stdout"
+
+    - name: Regenerate the network units
+      ansible.builtin.command: netplan generate
+      when: dev_netplan_opt.changed
+      changed_when: true
+
+# Ubuntu reserves memory for a crash-dump kernel at boot — 512 MB in the
+# 4-32 GB band, taken before the OS sees it. On a box that is reprovisioned from
+# this repository rather than debugged from a crash dump, that is capacity spent
+# on nothing. The reservation is on the kernel command line, so the memory comes
+# back at the next reboot, not at the end of this run.
+- name: Crash-dump kernel reservation
+  when: dev_kdump_enabled is defined and not (dev_kdump_enabled | bool)
+  block:
+
+    - name: Remove kdump
+      ansible.builtin.apt:
+        name:
+          - kdump-tools
+          - makedumpfile
+        state: absent
+        purge: true
+      register: dev_kdump_purge
+
+    - name: Regenerate the boot configuration
+      ansible.builtin.command: update-grub
+      when: dev_kdump_purge.changed
+      changed_when: true
+
+    - name: Report that the memory returns at the next reboot
+      ansible.builtin.debug:
+        msg: >-
+          crashkernel removed from the boot configuration. The reservation is
+          made at boot, so {{ ansible_memtotal_mb }} MB becomes the full amount
+          only after this box next restarts.
+      when: dev_kdump_purge.changed

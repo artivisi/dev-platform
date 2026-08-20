@@ -1,0 +1,320 @@
+---
+# Asserts that the properties the specification depends on actually hold on the
+# provisioned box. Each check corresponds to a claim in the platform document
+# that would fail silently if it were wrong.
+
+- name: Verify the provisioned box
+  hosts: dev_boxes
+  become: true
+  gather_facts: true
+
+  tasks:
+
+    - name: Read the passwd database
+      ansible.builtin.getent:
+        database: passwd
+
+    # --- Isolation ---------------------------------------------------------
+
+    - name: The system Docker daemon is masked
+      ansible.builtin.command: systemctl is-enabled docker.service
+      register: v_docker_sys
+      changed_when: false
+      failed_when: false
+
+    - name: Assert the system daemon is masked
+      ansible.builtin.assert:
+        that: "'masked' in v_docker_sys.stdout"
+        fail_msg: >-
+          docker.service is '{{ v_docker_sys.stdout }}', not masked. A shared
+          root daemon makes the docker group root-equivalent and defeats
+          per-user isolation entirely.
+        success_msg: "System Docker daemon is masked."
+
+    - name: The docker group has no members
+      ansible.builtin.command: getent group docker
+      register: v_docker_grp
+      changed_when: false
+
+    - name: Assert the docker group is empty
+      ansible.builtin.assert:
+        that: "v_docker_grp.stdout.split(':')[3] | trim | length == 0"
+        fail_msg: >-
+          docker group members: {{ v_docker_grp.stdout.split(':')[3] }}.
+          Membership is equivalent to root on the host.
+        success_msg: "docker group is empty."
+
+    # --- Lingering ---------------------------------------------------------
+
+    - name: Lingering is enabled for every account that runs a daemon
+      ansible.builtin.stat:
+        path: "/var/lib/systemd/linger/{{ item }}"
+      register: v_linger
+      loop: "{{ dev_users + ['e2e'] }}"
+
+    - name: Assert lingering
+      ansible.builtin.assert:
+        that: item.stat.exists
+        fail_msg: >-
+          Lingering is off for {{ item.item }}. Their rootless daemon and every
+          running container will be killed when their last SSH session closes.
+        success_msg: "Lingering enabled for {{ item.item }}."
+      loop: "{{ v_linger.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # --- Rootless daemons --------------------------------------------------
+
+    - name: Each account has a live rootless socket
+      ansible.builtin.stat:
+        path: "/run/user/{{ ansible_facts.getent_passwd[item][1] }}/docker.sock"
+      register: v_sock
+      loop: "{{ dev_users + ['e2e'] }}"
+
+    - name: Assert rootless sockets
+      ansible.builtin.assert:
+        that: item.stat.exists
+        fail_msg: "No rootless Docker socket for {{ item.item }}."
+        success_msg: "Rootless socket present for {{ item.item }}."
+      loop: "{{ v_sock.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # The probe is deliberately left in place (no --rm) so the isolation check
+    # below has something real to fail on. With --rm the container is gone
+    # before the second user looks, and the assertion passes whether the
+    # daemons are isolated or not.
+    - name: A developer can actually run a container
+      become: true
+      become_user: "{{ dev_users[0] }}"
+      ansible.builtin.command: docker run --name isolation-probe hello-world
+      register: v_run
+      changed_when: true
+      environment:
+        DOCKER_HOST: "unix:///run/user/{{ ansible_facts.getent_passwd[dev_users[0]][1] }}/docker.sock"
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[dev_users[0]][1] }}"
+
+    - name: Assert the container ran
+      ansible.builtin.assert:
+        that: "'Hello from Docker' in v_run.stdout"
+        fail_msg: "Rootless container did not run: {{ v_run.stdout }}"
+        success_msg: "Rootless container ran."
+
+    - name: The probe is visible to the user who created it
+      become: true
+      become_user: "{{ dev_users[0] }}"
+      ansible.builtin.command: docker ps -a --format '{% raw %}{{.Names}}{% endraw %}'
+      register: v_owner_ps
+      changed_when: false
+      environment:
+        DOCKER_HOST: "unix:///run/user/{{ ansible_facts.getent_passwd[dev_users[0]][1] }}/docker.sock"
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[dev_users[0]][1] }}"
+
+    - name: Assert the owner sees the probe
+      ansible.builtin.assert:
+        that: "'isolation-probe' in v_owner_ps.stdout"
+        fail_msg: >-
+          {{ dev_users[0] }} cannot see the container they just created —
+          the isolation check below would pass for the wrong reason.
+        success_msg: "Owner sees their own container."
+
+    - name: One user cannot see another user's containers
+      become: true
+      become_user: "{{ dev_users[1] }}"
+      ansible.builtin.command: docker ps -a --format '{% raw %}{{.Names}}{% endraw %}'
+      register: v_isolation
+      changed_when: false
+      environment:
+        DOCKER_HOST: "unix:///run/user/{{ ansible_facts.getent_passwd[dev_users[1]][1] }}/docker.sock"
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[dev_users[1]][1] }}"
+
+    - name: Assert container list isolation
+      ansible.builtin.assert:
+        that: "'isolation-probe' not in v_isolation.stdout"
+        fail_msg: >-
+          {{ dev_users[1] }} can see a container belonging to
+          {{ dev_users[0] }}: {{ v_isolation.stdout }}. The daemons are
+          not isolated.
+        success_msg: "Container namespaces are isolated between users."
+
+    - name: Remove the probe
+      become: true
+      become_user: "{{ dev_users[0] }}"
+      ansible.builtin.command: docker rm -f isolation-probe
+      changed_when: true
+      environment:
+        DOCKER_HOST: "unix:///run/user/{{ ansible_facts.getent_passwd[dev_users[0]][1] }}/docker.sock"
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[dev_users[0]][1] }}"
+
+    # --- Resource limits ---------------------------------------------------
+
+    - name: The slice drop-in is installed
+      ansible.builtin.slurp:
+        src: /etc/systemd/system/user-.slice.d/50-limits.conf
+      register: v_slice
+
+    - name: Assert slice limits are declared
+      ansible.builtin.assert:
+        that:
+          - "'MemoryMax=' ~ dev_user_memory_max in (v_slice.content | b64decode)"
+          - "'MemoryHigh=' ~ dev_user_memory_high in (v_slice.content | b64decode)"
+        fail_msg: "Slice drop-in does not carry the tier's memory ceilings."
+        success_msg: "Slice drop-in carries the tier's memory ceilings."
+
+    - name: The limit is live in the cgroup, not merely declared
+      ansible.builtin.slurp:
+        src: "/sys/fs/cgroup/user.slice/user-{{ ansible_facts.getent_passwd[dev_users[0]][1] }}.slice/memory.max"
+      register: v_memmax
+
+    - name: Assert the kernel is enforcing the ceiling
+      ansible.builtin.assert:
+        that:
+          - (v_memmax.content | b64decode | trim) != 'max'
+        fail_msg: >-
+          memory.max for {{ dev_users[0] }} is 'max' — the drop-in was
+          written but systemd is not enforcing it. Check that cgroup
+          controllers are delegated to user@.service.
+        success_msg: >-
+          Kernel is enforcing memory.max =
+          {{ v_memmax.content | b64decode | trim }} bytes.
+
+    # --- Port blocks -------------------------------------------------------
+
+    # Single quotes inside, not double: Ansible runs the command through
+    # /bin/sh -c, which would expand $DEV_PORT_BASE itself — as an unset
+    # variable in its own environment — before bash -l ever sources
+    # /etc/profile.d and sets it.
+    - name: Each user resolves a distinct port block
+      become: true
+      become_user: "{{ item }}"
+      ansible.builtin.shell:
+        cmd: "bash -lc 'echo $DEV_PORT_BASE'"
+      register: v_ports
+      changed_when: false
+      loop: "{{ dev_users }}"
+
+    - name: Assert port blocks are set and distinct
+      ansible.builtin.assert:
+        that:
+          - v_ports.results | map(attribute='stdout') | map('trim') | select('match', '^[0-9]+$') | list | length == dev_users | length
+          - v_ports.results | map(attribute='stdout') | map('trim') | unique | length == dev_users | length
+        fail_msg: >-
+          Port blocks are unset or collide:
+          {{ v_ports.results | map(attribute='stdout') | list }}
+        success_msg: >-
+          Distinct port blocks:
+          {{ v_ports.results | map(attribute='stdout') | map('trim') | list }}
+
+    # --- Registry mirror ---------------------------------------------------
+
+    - name: The registry mirror answers
+      ansible.builtin.uri:
+        url: http://127.0.0.1:5000/v2/
+        status_code: [200, 401]
+      when: dev_registry_mirror_enabled | bool
+
+    # --- Standing loops ----------------------------------------------------
+
+    - name: The loop timer is active
+      ansible.builtin.command: "systemctl is-active e2e@{{ dev_e2e_projects[0] }}.timer"
+      register: v_timer
+      changed_when: false
+      when: dev_e2e_enabled | bool
+
+    - name: Assert the loop timer is running
+      ansible.builtin.assert:
+        that: "v_timer.stdout | trim == 'active'"
+        fail_msg: "Standing loop timer is {{ v_timer.stdout }}."
+        success_msg: "Standing loop timer is active."
+      when: dev_e2e_enabled | bool
+
+    # --- Accounts ----------------------------------------------------------
+
+    - name: Home directories are private
+      ansible.builtin.stat:
+        path: "{{ ansible_facts.getent_passwd[item][4] }}"
+      register: v_home
+      loop: "{{ dev_users }}"
+
+    - name: Assert home mode 0750
+      ansible.builtin.assert:
+        that: item.stat.mode == '0750'
+        fail_msg: "{{ item.item }}'s home is mode {{ item.stat.mode }}; other users can read it."
+        success_msg: "{{ item.item }}'s home is 0750."
+      loop: "{{ v_home.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Subordinate ranges derive from the uid
+      ansible.builtin.command: "grep '^{{ item }}:' /etc/subuid"
+      register: v_subuid
+      changed_when: false
+      loop: "{{ dev_users }}"
+
+    - name: Assert subuid ranges
+      ansible.builtin.assert:
+        that: item.stdout | trim == item.item ~ ':' ~ (100000 + (ansible_facts.getent_passwd[item.item][1] | int) * 65536) ~ ':65536'
+        fail_msg: "subuid for {{ item.item }} is '{{ item.stdout }}', not uid-derived."
+        success_msg: "subuid for {{ item.item }} is uid-derived."
+      loop: "{{ v_subuid.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Authorized keys match the roster
+      ansible.builtin.command: "grep -c '^ssh-\\|^ecdsa-\\|^sk-' {{ ansible_facts.getent_passwd[item][4] }}/.ssh/authorized_keys"
+      register: v_keys
+      changed_when: false
+      loop: "{{ dev_users }}"
+
+    - name: Assert key counts
+      ansible.builtin.assert:
+        that: item.stdout | int == dev_people[item.item].ssh_keys | length
+        fail_msg: "{{ item.item }} has {{ item.stdout }} keys installed, roster has {{ dev_people[item.item].ssh_keys | length }}."
+        success_msg: "{{ item.item }}: {{ item.stdout }} key(s), as in the roster."
+      loop: "{{ v_keys.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # --- Quotas ------------------------------------------------------------
+
+    - name: Quota bounds are live
+      ansible.builtin.shell:
+        cmd: "repquota -up $(findmnt -no TARGET --target /home) | awk -v u='{{ dev_users[0] }}' '$1==u {print $4, $5}'"
+      register: v_quota
+      changed_when: false
+      when: dev_quota_enabled | bool
+
+    - name: Assert quota bounds
+      ansible.builtin.assert:
+        that: v_quota.stdout | trim == ((dev_user_quota_soft | human_to_bytes) // 1024) ~ ' ' ~ ((dev_user_quota_hard | human_to_bytes) // 1024)
+        fail_msg: "Quota for {{ dev_users[0] }} is '{{ v_quota.stdout }}', expected the tier bounds."
+        success_msg: "Quota bounds are live for {{ dev_users[0] }}."
+      when: dev_quota_enabled | bool
+
+    # --- Self-provisioning -------------------------------------------------
+
+    - name: The pull timer is active
+      ansible.builtin.command: systemctl is-active dev-platform-pull.timer
+      register: v_pull
+      changed_when: false
+      when: dev_pull_enabled | bool
+
+    - name: Assert the pull timer
+      ansible.builtin.assert:
+        that: v_pull.stdout | trim == 'active'
+        fail_msg: "dev-platform-pull.timer is {{ v_pull.stdout }}."
+        success_msg: "Self-provisioning timer is active."
+      when: dev_pull_enabled | bool
+
+    # --- SSH ---------------------------------------------------------------
+
+    - name: Password authentication is off everywhere
+      ansible.builtin.command: sshd -T
+      register: v_sshd
+      changed_when: false
+
+    - name: Assert password authentication is disabled
+      ansible.builtin.assert:
+        that: "'passwordauthentication no' in v_sshd.stdout | lower"
+        fail_msg: "sshd still accepts password authentication."
+        success_msg: "sshd is key-only."

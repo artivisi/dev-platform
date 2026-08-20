@@ -1,0 +1,202 @@
+---
+- name: Read the current timezone
+  ansible.builtin.command: timedatectl show -p Timezone --value
+  register: dev_tz_current
+  changed_when: false
+
+  check_mode: false
+- name: Set timezone
+  ansible.builtin.command: "timedatectl set-timezone {{ dev_timezone }}"
+  when: dev_tz_current.stdout | trim != dev_timezone
+  changed_when: true
+
+# Runs before anything installs, because every apt task below needs the archive
+# reachable. Only the archive URI is rewritten — the security suite is served
+# from security.ubuntu.com and is left alone.
+#
+# Release-agnostic on purpose: Suites and Components stay whatever the installer
+# wrote, so this survives the next LTS without an edit here.
+- name: Point apt at the configured archive mirror
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list.d/ubuntu.sources
+    regexp: '^(URIs:)\s+https?://\S*archive\.ubuntu\.com/ubuntu/?\s*$'
+    replace: '\1 {{ dev_apt_mirror }}'
+  register: dev_apt_mirror_set
+
+# `replace` is a silent no-op when its pattern does not match, which would leave
+# the box pointed at an unreachable mirror to fail later as a confusing package
+# error. Read the file back rather than assuming the edit landed.
+- name: Read the apt sources back
+  ansible.builtin.slurp:
+    src: /etc/apt/sources.list.d/ubuntu.sources
+  register: dev_apt_sources
+
+- name: The archive mirror is the configured one
+  ansible.builtin.assert:
+    that:
+      - (dev_apt_sources.content | b64decode) is search('URIs:\s+' ~ (dev_apt_mirror | regex_escape))
+    fail_msg: >-
+      /etc/apt/sources.list.d/ubuntu.sources does not carry
+      '{{ dev_apt_mirror }}'. Its archive line did not match the shape this role
+      expects, so the mirror was never changed and package installs will fail
+      against whatever it does point at. Inspect the file by hand.
+    quiet: true
+
+- name: Refresh package lists after a mirror change
+  ansible.builtin.apt:
+    update_cache: true
+  when: dev_apt_mirror_set.changed
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - git
+      - tmux
+      - btop
+      - smartmontools
+      - jq
+      - ripgrep
+      - curl
+      - ca-certificates
+      # acl lets Ansible hand temp files to an unprivileged become_user without
+      # making them world-readable. Rootless Docker setup runs as each developer,
+      # so without this every such task either fails or leaks.
+      - acl
+      # Rootless Docker prerequisites.
+      - uidmap
+      - dbus-user-session
+      - slirp4netns
+      - fuse-overlayfs
+      - zip
+      - unzip
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Never boot to a desktop
+  ansible.builtin.command: systemctl set-default multi-user.target
+  register: dev_setdefault
+  changed_when: "'Created symlink' in dev_setdefault.stderr or 'Removed' in dev_setdefault.stderr"
+
+- name: Ensure the user manager drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/user@.service.d
+    state: directory
+    mode: "0755"
+
+# Without delegation the per-user memory ceilings in the users role are accepted
+# by systemd and then silently ignored, which is worse than not setting them.
+- name: Delegate cgroup controllers to the per-user manager
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/user@.service.d/delegate.conf
+    mode: "0644"
+    content: |
+      # Managed by Ansible — development-environment (see the Setup Guide).
+      [Service]
+      Delegate=cpu cpuset io memory pids
+  notify: Reload systemd
+
+- name: Apply hardware-conditional settings
+  ansible.builtin.include_tasks: hardware.yml
+
+# --- Per-user disk quotas -----------------------------------------------------
+# One user filling the disk stops every other user's builds. With rootless
+# Docker the image store lives under $HOME, so a home quota covers container
+# images too — which is what makes runaway image pulls self-limiting.
+#
+# Quota accounting is a mount option on the filesystem holding /home. Enabling
+# it here (fstab + remount + quotacheck + quotaon) rather than leaving it as a
+# manual step means the users role's setquota cannot fail on a box where the
+# step was forgotten. Preflight has already asserted the filesystem is ext4.
+- name: Enable quota accounting on the filesystem holding /home
+  when: dev_quota_enabled | bool
+  block:
+
+    - name: Install quota tooling
+      ansible.builtin.apt:
+        name: quota
+        state: present
+
+    - name: Locate the mount and its fstab entry
+      ansible.builtin.command: findmnt -no TARGET,SOURCE --target /home
+      register: dev_quota_mnt
+      changed_when: false
+
+      check_mode: false
+    - name: Record the quota mount target
+      ansible.builtin.set_fact:
+        dev_quota_target: "{{ dev_quota_mnt.stdout.split()[0] }}"
+        dev_quota_source: "{{ dev_quota_mnt.stdout.split()[1] }}"
+
+    - name: Read the fstab options for that mount
+      ansible.builtin.command: "findmnt --fstab -no OPTIONS {{ dev_quota_target }}"
+      register: dev_quota_fstab_opts
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    - name: The mount has an fstab entry
+      ansible.builtin.assert:
+        that:
+          - dev_quota_fstab_opts.rc == 0
+          - dev_quota_fstab_opts.stdout | trim | length > 0
+        fail_msg: >-
+          {{ dev_quota_target }} (holding /home) has no /etc/fstab entry, so the
+          usrquota mount option cannot be made persistent. Add the entry, or set
+          dev_quota_enabled false for this box.
+        quiet: true
+
+    - name: Add usrquota to the fstab entry
+      ansible.builtin.replace:
+        path: /etc/fstab
+        # (?!#) so a comment mentioning the mount is not treated as an entry.
+        # curtin leaves '# / was on /dev/... during curtin installation', which
+        # matches the field shape exactly and would otherwise be rewritten too.
+        regexp: '^(?P<pre>(?!#)\S+\s+{{ dev_quota_target | regex_escape }}\s+\S+\s+)(?P<opts>\S+)(?P<post>\s+.*)$'
+        replace: '\g<pre>\g<opts>,usrquota\g<post>'
+      when: "'usrquota' not in (dev_quota_fstab_opts.stdout | trim).split(',')"
+      register: dev_quota_fstab
+
+    - name: Read the live mount options
+      ansible.builtin.command: "findmnt -no OPTIONS {{ dev_quota_target }}"
+      register: dev_quota_live_opts
+      changed_when: false
+
+      check_mode: false
+    - name: Remount with quota accounting
+      ansible.builtin.command: "mount -o remount {{ dev_quota_target }}"
+      when: "'usrquota' not in dev_quota_live_opts.stdout.split(',')"
+      changed_when: true
+
+    - name: Check whether the filesystem keeps quota internally
+      ansible.builtin.command: "tune2fs -l {{ dev_quota_source }}"
+      register: dev_quota_tune
+      changed_when: false
+
+      check_mode: false
+    - name: Check whether the quota index exists
+      ansible.builtin.stat:
+        path: "{{ dev_quota_target | regex_replace('/$', '') }}/aquota.user"
+      register: dev_quota_index
+
+    # Filesystems without the internal `quota` feature keep the index in
+    # aquota.user at the mount root, and it must be built once. -m tolerates the
+    # filesystem being mounted read-write.
+    - name: Build the quota index
+      ansible.builtin.command: "quotacheck -cum {{ dev_quota_target }}"
+      when:
+        - dev_quota_tune.stdout is not search('Filesystem features:.*\bquota\b')
+        - not dev_quota_index.stat.exists
+      changed_when: true
+
+    - name: Read quota state
+      ansible.builtin.command: "quotaon -up {{ dev_quota_target }}"
+      register: dev_quota_state
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    - name: Turn quotas on
+      ansible.builtin.command: "quotaon -u {{ dev_quota_target }}"
+      when: "'is on' not in dev_quota_state.stdout"
+      changed_when: true

@@ -1,0 +1,42 @@
+---
+# Offline validation of the roster and placement — the same assertions
+# preflight makes on a box, run in CI so a pull request that would fail on
+# every box cannot merge.
+#
+#   ansible-playbook -i inventory/hosts.ini platform/ansible/inventory-check.yml
+#
+# Run from a deployment checkout: the roster it validates is the deployment's.
+
+- name: Roster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Load the fleet-wide variables
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../../inventory/group_vars/all.yml"
+
+    - name: Validate the roster
+      ansible.builtin.include_tasks: roles/preflight/tasks/roster.yml
+      vars:
+        dev_users: []
+        dev_users_absent: []
+
+- name: Placement
+  hosts: dev_boxes
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Placement lists exist
+      ansible.builtin.assert:
+        that:
+          - dev_users is defined
+          - dev_users_absent is defined
+          - dev_pull_enabled is defined
+        fail_msg: >-
+          host_vars/{{ inventory_hostname }}.yml must define dev_users,
+          dev_users_absent, and dev_pull_enabled.
+        quiet: true
+
+    - name: Validate placement against the roster
+      ansible.builtin.include_tasks: roles/preflight/tasks/roster.yml

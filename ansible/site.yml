@@ -1,0 +1,44 @@
+---
+# Provisions a development box as described in the Setup Guide.
+#
+#   push:  ansible-playbook -i inventory/hosts.ini -e @<secrets>/box.yml site.yml
+#   pull:  installed by the `pull` role; the box runs the same playbook against
+#          itself on a timer, reading secrets from /etc/dev-platform/host.yml
+#
+# Every value this playbook needs must be supplied by inventory or the box's
+# host.yml. Nothing is defaulted: the preflight role fails the run if anything
+# required is missing, rather than provisioning a box that is subtly wrong.
+#
+# Tags, for a targeted push run (a full run with no tags is the norm and is
+# idempotent):
+#   users     accounts, keys, lingering, quotas, per-user daemons and managers
+#   limits    per-user slice ceilings
+#   mirror    registry pull-through cache
+#   e2e       standing-loop account, units, timers
+#   pull      self-provisioning timer
+
+- name: Development box
+  hosts: dev_boxes
+  become: true
+
+  roles:
+    - role: preflight        # assert every required variable; verify the tier
+      tags: [always]
+    - role: base             # packages, timezone, cgroup delegation, quota accounting
+      tags: [base]
+    - role: ssh_hardening    # key-only authentication
+      tags: [ssh]
+    - role: wireguard        # hub client, when enabled
+      tags: [wireguard]
+    - role: users            # accounts, keys, lingering, slices, quotas, port blocks
+      tags: [users, limits]
+    - role: rootless_docker  # per-user daemon; system daemon masked
+      tags: [users]
+    - role: registry_mirror  # pull-through cache, when enabled
+      tags: [mirror]
+    - role: toolchain        # per-user version managers; system PHP/gh
+      tags: [users]
+    - role: e2e_loops        # service account, template unit, timers
+      tags: [e2e]
+    - role: pull             # self-provisioning timer, when enabled
+      tags: [pull]

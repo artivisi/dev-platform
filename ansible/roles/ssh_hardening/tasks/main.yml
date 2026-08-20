@@ -1,0 +1,59 @@
+---
+# Key-only authentication. Root keeps key access so this playbook can still
+# reach the box; only password authentication is removed.
+
+- name: Disable password authentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?\s*PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+    validate: 'sshd -t -f %s'
+  notify: Restart sshd
+
+- name: Disable keyboard-interactive authentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?\s*KbdInteractiveAuthentication'
+    line: 'KbdInteractiveAuthentication no'
+    validate: 'sshd -t -f %s'
+  notify: Restart sshd
+
+- name: Permit root login by key only
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?\s*PermitRootLogin'
+    line: 'PermitRootLogin prohibit-password'
+    validate: 'sshd -t -f %s'
+  notify: Restart sshd
+
+# Cloud images commonly ship a drop-in that re-enables passwords and overrides
+# everything above. Neutralise it rather than editing the main file twice.
+- name: Find cloud-init SSH drop-ins
+  ansible.builtin.find:
+    paths: /etc/ssh/sshd_config.d
+    patterns: "*.conf"
+  register: dev_ssh_dropins
+
+# No `validate` here, unlike the tasks above. A drop-in cannot be checked on its
+# own — `sshd -t -f <drop-in>` would validate a fragment rather than the file
+# sshd actually reads — and Ansible's validate offers only the per-file form: it
+# requires the %s placeholder and rejects a fixed path outright. The combined
+# configuration is therefore checked once, below, after every drop-in is written.
+- name: Remove password authentication from drop-ins
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    regexp: '^#?\s*PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+  loop: "{{ dev_ssh_dropins.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  notify: Restart sshd
+
+# Runs before the handler, so a broken edit stops the run instead of restarting
+# sshd onto a configuration it cannot parse. The daemon keeps serving its current
+# config either way, so a bad edit costs a failed run, never access to the box.
+- name: The combined SSH configuration is valid
+  ansible.builtin.command: sshd -t
+  changed_when: false
+
+  check_mode: false

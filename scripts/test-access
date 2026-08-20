@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Check that scripts/access edits the inventory correctly.
+
+Read-only: works on strings in memory, touches no file, no box and no git. Run
+it after changing scripts/access, because the failure it guards against is
+quiet — a regex that eats a neighbouring key or a comment block corrupts the
+roster for every box, and Ansible would happily apply the result.
+"""
+import io
+import os
+import sys
+
+import yaml
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ns = {"__file__": os.path.join(ROOT, "scripts", "access"), "__name__": "acc"}
+src = io.open(ns["__file__"], encoding="utf-8").read().split("def main()")[0]
+exec(compile(src, "access", "exec"), ns)
+
+# Tested against the deployment template shipped with the platform, so the test
+# runs anywhere and needs no fleet. The template has the same shape as a real
+# deployment's inventory, which is the thing the editing logic must not break.
+EX = os.path.join(ROOT, "example-deployment", "inventory")
+roster = io.open(os.path.join(EX, "group_vars", "all.yml"), encoding="utf-8").read()
+hv = io.open(os.path.join(EX, "host_vars", "EXAMPLE-box.yml"), encoding="utf-8").read()
+
+results = []
+
+
+def check(label, cond):
+    results.append((label, bool(cond)))
+
+
+# The template ships an empty roster, so give the test one to work on.
+roster = roster.replace("dev_people: {}", '''dev_people:
+  alice:
+    ssh_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITESTONLY alice@laptop"''')
+who = sorted(yaml.safe_load(roster)["dev_people"])
+person = who[0]
+keys = ns["get_keys"](roster, person)
+
+check("reads an existing person's keys", keys and all(k.startswith(("ssh-", "ecdsa-")) for k in keys))
+check("unknown person yields None", ns["get_keys"](roster, "definitelynotreal") is None)
+
+susp = ns["set_keys"](roster, person, [])
+d = yaml.safe_load(susp)
+check("suspend leaves valid YAML", isinstance(d, dict))
+check("suspend leaves the person with zero keys", d["dev_people"][person]["ssh_keys"] == [])
+check("suspend keeps other deployment values", d["dev_timezone"] and d["dev_repo_url"])
+check("suspend keeps comments", "PUBLIC KEYS ONLY" in susp)
+
+NEW = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITESTONLY test@replacement"
+back = yaml.safe_load(ns["set_keys"](susp, person, [NEW]))
+check("restore puts exactly one key back", back["dev_people"][person]["ssh_keys"] == [NEW])
+
+m = ns["person_block"](roster, person)
+two = roster[:m.end()] + '  zztest:\n    ssh_keys:\n      - "%s"\n' % NEW + roster[m.end():]
+check("grant adds a second person", sorted(yaml.safe_load(two)["dev_people"]) == sorted(who + ["zztest"]))
+mb = ns["person_block"](two, "zztest")
+pruned = yaml.safe_load(two[:mb.start()] + two[mb.end():])
+check("prune removes only that person", sorted(pruned["dev_people"]) == who)
+check("prune leaves the others' keys intact", pruned["dev_people"][person]["ssh_keys"] == keys)
+
+p1 = ns["set_list"](ns["set_list"](hv, "dev_users", []), "dev_users_absent", [person])
+d5 = yaml.safe_load(p1)
+check("purge empties dev_users", d5["dev_users"] == [])
+check("purge fills dev_users_absent", d5["dev_users_absent"] == [person])
+check("purge leaves dev_pull_enabled alone", d5["dev_pull_enabled"] is True)
+check("purge keeps host_vars comments", "Absence means" in p1)
+check("purge loses no lines", len(p1.splitlines()) >= len(hv.splitlines()) - 2)
+
+for label, passed in results:
+    print(("  PASS  " if passed else "  FAIL  ") + label)
+bad = [l for l, p in results if not p]
+print("\n%d checks, %d failed" % (len(results), len(bad)))
+sys.exit(1 if bad else 0)

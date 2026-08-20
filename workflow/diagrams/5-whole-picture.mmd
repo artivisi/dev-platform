@@ -1,0 +1,27 @@
+---
+config:
+  theme: neutral
+  flowchart: { htmlLabels: true, padding: 10, nodeSpacing: 45, rankSpacing: 70 }
+---
+flowchart LR
+    Ani["Ani<br/>laptop"] --> AT
+    Budi["Budi<br/>laptop"] --> BT
+    Citra["Citra<br/>laptop"] --> CT
+    subgraph Box["The box"]
+        direction TB
+        AT["Ani's tmux"]
+        BT["Budi's tmux"]
+        CT["Citra's tmux"]
+    end
+    Box <== "push / pull" ==> GH["GitHub"]
+    GH -- "build + deploy" --> Web["Website<br/>www.example.org"]
+    GH -- "deploy" --> App["Application<br/>server"]
+    classDef local fill:#fdf2f2,stroke:#c0392b,stroke-width:2px
+    classDef keeper fill:#f0f9f0,stroke:#58c034,stroke-width:2px
+    classDef share fill:#fdf6ec,stroke:#c2761a,stroke-width:2px
+    classDef target fill:#eef0f9,stroke:#2e3192,stroke-width:2px
+    class Ani,Budi,Citra local
+    class AT,BT,CT keeper
+    class GH share
+    class Web,App target
+    style Box fill:#f7f8fc,stroke:#2e3192,stroke-width:2px

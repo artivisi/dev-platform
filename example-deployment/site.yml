@@ -1,0 +1,5 @@
+---
+# The whole playbook for this fleet: the platform's, run against this
+# repository's inventory. Everything that varies between organisations is in
+# inventory/; everything else is pinned in the platform submodule.
+- import_playbook: platform/ansible/site.yml

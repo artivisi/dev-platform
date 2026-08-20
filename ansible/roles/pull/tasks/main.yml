@@ -1,0 +1,85 @@
+---
+# Self-provisioning. The box converges on the repository on a timer: a merged
+# commit reaches every box that lists the change within one interval, without
+# anyone running anything. Preflight gates every run, so a bad commit fails
+# loudly on every box and changes nothing.
+#
+# The same playbook, roles, and inventory are used by push (from an operator's
+# machine) and pull (from the box itself); this role only installs the pull
+# side. It is guarded by dev_pull_enabled so the droplet harness and a box
+# without repository access can still be provisioned by push.
+
+- name: Configure self-provisioning
+  when: dev_pull_enabled | bool
+  block:
+
+    # ansible-core plus the one collection the roles need — not the community
+    # `ansible` metapackage, which is an order of magnitude larger and which
+    # Ubuntu pulls in as a Recommends of ansible-core unless told otherwise.
+    - name: Install ansible-core and git
+      ansible.builtin.apt:
+        name:
+          - ansible-core
+          - git
+        state: present
+        install_recommends: false
+
+    - name: Install the collections the roles need
+      ansible.builtin.command: ansible-galaxy collection install ansible.posix
+      args:
+        creates: /root/.ansible/collections/ansible_collections/ansible/posix
+
+    - name: Ensure the checkout parent exists
+      ansible.builtin.file:
+        path: "{{ dev_pull_checkout_dir | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Install the failure notifier
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/dev-platform-pull-failed.service
+        mode: "0644"
+        content: |
+          # Managed by Ansible — development-environment (see the Setup Guide).
+          # OnFailure target of dev-platform-pull.service.
+          [Unit]
+          Description=Report a failed provisioning run
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/curl -fsS -d "PROVISIONING FAILED on %H — journalctl -u dev-platform-pull" {{ dev_ntfy_url }}
+      notify: Reload systemd for pull
+
+    - name: Install the pull service
+      ansible.builtin.template:
+        src: dev-platform-pull.service.j2
+        dest: /etc/systemd/system/dev-platform-pull.service
+        mode: "0644"
+      notify: Reload systemd for pull
+
+    - name: Install the pull timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/dev-platform-pull.timer
+        mode: "0644"
+        content: |
+          # Managed by Ansible — development-environment (see the Setup Guide).
+          [Unit]
+          Description=Converge this box on the development-environment repository
+
+          [Timer]
+          OnCalendar={{ dev_pull_on_calendar }}
+          RandomizedDelaySec=120
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+      notify: Reload systemd for pull
+
+    - name: Apply unit changes before enabling the timer
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable the pull timer
+      ansible.builtin.systemd_service:
+        name: dev-platform-pull.timer
+        enabled: true
+        state: started

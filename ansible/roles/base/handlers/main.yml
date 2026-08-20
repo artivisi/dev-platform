@@ -1,0 +1,11 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+# logind restart does not end sessions on current systemd; it re-reads the lid
+# handling.
+- name: Restart logind
+  ansible.builtin.systemd_service:
+    name: systemd-logind
+    state: restarted

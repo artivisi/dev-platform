@@ -1,0 +1,32 @@
+name: inventory-check
+
+# A merged commit is a deploy: every box pulls main. These checks are the
+# subset of preflight that can run without a box, so a broken roster or
+# placement fails the pull request instead of failing on every box.
+
+on:
+  pull_request:
+    paths:
+      - "ansible/**"
+  push:
+    branches: [main]
+    paths:
+      - "ansible/**"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ansible-core and collections
+        run: |
+          pipx install ansible-core
+          ansible-galaxy collection install -r ansible/requirements.yml
+      - name: Syntax
+        working-directory: ansible
+        run: |
+          ansible-playbook --syntax-check -i inventory/hosts.ini site.yml
+          ansible-playbook --syntax-check -i inventory/hosts.ini inventory-check.yml
+      - name: Roster and placement
+        working-directory: ansible
+        run: ansible-playbook -i inventory/hosts.ini inventory-check.yml

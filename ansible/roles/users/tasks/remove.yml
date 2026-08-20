@@ -1,0 +1,93 @@
+---
+# Removes one account and everything the platform created for it. Order
+# matters: the rootless daemon holds mounts under the home directory, so the
+# session must be gone before the home is.
+#
+# This DELETES the home directory — repositories, worktrees, image store,
+# caches, credentials, agent history. Nothing is archived. A name already
+# absent is a clean no-op.
+
+- name: "Check whether {{ dev_account }} exists"
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ dev_account }}"
+    fail_key: false
+
+- name: "Remove {{ dev_account }}"
+  when: ansible_facts.getent_passwd[dev_account] is not none
+  block:
+
+    - name: "Resolve uid for {{ dev_account }}"
+      ansible.builtin.set_fact:
+        dev_rm_uid: "{{ ansible_facts.getent_passwd[dev_account][1] }}"
+
+    # Lock first: even if a later step fails, the person is out.
+    - name: "Revoke keys for {{ dev_account }}"
+      ansible.builtin.file:
+        path: "{{ ansible_facts.getent_passwd[dev_account][4] }}/.ssh/authorized_keys"
+        state: absent
+
+    - name: "Disable lingering for {{ dev_account }}"
+      ansible.builtin.command: "loginctl disable-linger {{ dev_account }}"
+      args:
+        removes: "/var/lib/systemd/linger/{{ dev_account }}"
+
+    # Kills SSH sessions, tmux, agent sessions, the rootless dockerd and every
+    # container under it. Returns non-zero when there is nothing to terminate.
+    - name: "Terminate every process of {{ dev_account }}"
+      ansible.builtin.command: "loginctl terminate-user {{ dev_account }}"
+      register: dev_rm_terminate
+      changed_when: dev_rm_terminate.rc == 0
+      failed_when: false
+
+    - name: "Stop the user manager for {{ dev_account }}"
+      ansible.builtin.systemd_service:
+        name: "user@{{ dev_rm_uid }}.service"
+        state: stopped
+      failed_when: false
+
+    - name: "Wait for the runtime directory of {{ dev_account }} to go away"
+      ansible.builtin.wait_for:
+        path: "/run/user/{{ dev_rm_uid }}"
+        state: absent
+        timeout: 60
+
+    - name: "Locate the quota mount"
+      ansible.builtin.command: findmnt -no TARGET --target /home
+      register: dev_rm_quota_target
+      changed_when: false
+      check_mode: false
+      when: dev_quota_enabled | bool
+
+    # Quota records are keyed by uid and would otherwise outlive the account
+    # and attach to whoever gets the uid next.
+    - name: "Clear the quota entry for {{ dev_account }}"
+      ansible.builtin.command: "setquota -u {{ dev_account }} 0 0 0 0 {{ dev_rm_quota_target.stdout | trim }}"
+      when: dev_quota_enabled | bool
+      changed_when: true
+
+    - name: "Delete the account and home of {{ dev_account }}"
+      ansible.builtin.user:
+        name: "{{ dev_account }}"
+        state: absent
+        remove: true
+        force: true
+
+    - name: "Remove subordinate ranges of {{ dev_account }}"
+      ansible.builtin.lineinfile:
+        path: "{{ item }}"
+        regexp: "^{{ dev_account }}:"
+        state: absent
+      loop:
+        - /etc/subuid
+        - /etc/subgid
+
+    - name: "Verify {{ dev_account }} is gone"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: dev_rm_left
+      failed_when: dev_rm_left.stat.exists
+      loop:
+        - "/home/{{ dev_account }}"
+        - "/var/lib/systemd/linger/{{ dev_account }}"
+        - "/run/user/{{ dev_rm_uid }}"

@@ -1,0 +1,97 @@
+---
+- name: Configure standing E2E loops
+  when: dev_e2e_enabled | bool
+  block:
+
+    - name: Read the passwd database
+      ansible.builtin.getent:
+        database: passwd
+
+    - name: Resolve the loop account uid
+      ansible.builtin.set_fact:
+        dev_e2e_uid: "{{ ansible_facts.getent_passwd['e2e'][1] }}"
+
+    - name: Create the loop account directories
+      ansible.builtin.file:
+        path: "{{ dev_e2e_home }}/{{ item }}"
+        state: directory
+        owner: e2e
+        group: e2e
+        mode: "0755"
+      loop:
+        - src
+        - bin
+
+    - name: Install the loop runner
+      ansible.builtin.copy:
+        dest: "{{ dev_e2e_home }}/bin/e2e-run.sh"
+        owner: e2e
+        group: e2e
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          # Managed by Ansible — development-environment (see the Setup Guide).
+          #
+          # Runs a project's own suite entrypoint against main, and only when
+          # main has moved. The project defines what its suite is; this box
+          # only runs it. A missing entrypoint is a hard failure by design —
+          # a project that silently never verifies is worse than one that
+          # fails loudly on the first run.
+          set -euo pipefail
+          PROJECT="$1"
+          cd "{{ dev_e2e_home }}/src/$PROJECT"
+          git fetch origin main
+          LOCAL=$(git rev-parse HEAD)
+          REMOTE=$(git rev-parse origin/main)
+          [ "$LOCAL" = "$REMOTE" ] && exit 0   # nothing new — not a failure
+          git reset --hard origin/main
+          if ! ./bin/e2e.sh; then
+            curl -fsS -d "E2E RED on $PROJECT/main @ ${REMOTE:0:9}" "$NTFY_URL"
+            exit 1
+          fi
+
+    - name: Install the loop service template
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/e2e@.service
+        mode: "0644"
+        content: |
+          # Managed by Ansible — development-environment (see the Setup Guide).
+          [Unit]
+          Description=Full E2E suite for %i against main
+
+          [Service]
+          Type=oneshot
+          User=e2e
+          Environment=NTFY_URL={{ dev_ntfy_url }}
+          Environment=DOCKER_HOST=unix:///run/user/{{ dev_e2e_uid }}/docker.sock
+          Environment=XDG_RUNTIME_DIR=/run/user/{{ dev_e2e_uid }}
+          ExecStart={{ dev_e2e_home }}/bin/e2e-run.sh %i
+      notify: Reload systemd for loops
+
+    # RandomizedDelaySec matters with several projects: pushes landing on two
+    # projects in the same window must not fire both suites at the same instant.
+    # A suite slowed by CPU contention produces timing flakes, which is the one
+    # thing a standing loop must never do.
+    - name: Install the loop timer template
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/e2e@.timer
+        mode: "0644"
+        content: |
+          # Managed by Ansible — development-environment (see the Setup Guide).
+          [Timer]
+          OnCalendar=*:0/15
+          RandomizedDelaySec=300
+
+          [Install]
+          WantedBy=timers.target
+      notify: Reload systemd for loops
+
+    - name: Apply unit changes before enabling timers
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable a timer per project
+      ansible.builtin.systemd_service:
+        name: "e2e@{{ item }}.timer"
+        enabled: true
+        state: started
+      loop: "{{ dev_e2e_projects }}"

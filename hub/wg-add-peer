@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#
+# Mints a WireGuard peer on this hub and prints its client configuration.
+#
+#   wg-add-peer <name> --person|--box [--pubkey <base64>]
+#
+# Addressing: the hub is .1, people take .2-.9, boxes take .10-.254. The split
+# is so an address says what kind of thing it is without a lookup. Running out
+# of one range is an error, never a spill into the other.
+#
+# Key handling. Without --pubkey the hub generates the keypair, so the hub sees
+# the private key — that is the convenient path, and the right one when handing
+# a colleague a file to import. With --pubkey the peer generates its own key and
+# only the public half ever reaches this host; prefer it for anything
+# long-lived, and for anyone who can run `wg genkey` themselves.
+#
+# Applied with `wg syncconf`, so existing tunnels are never dropped.
+
+set -euo pipefail
+
+IFACE=wg0
+CONF="/etc/wireguard/${IFACE}.conf"
+PREFIX=10.9.0
+ENDPOINT_FILE=/etc/wireguard/endpoint
+
+[[ $EUID -eq 0 ]] || { echo "wg-add-peer: must run as root" >&2; exit 1; }
+[[ -f $CONF ]] || { echo "wg-add-peer: $CONF not found — is this the hub?" >&2; exit 1; }
+[[ -f $ENDPOINT_FILE ]] || {
+    echo "wg-add-peer: $ENDPOINT_FILE is missing. Write the hub's reachable" >&2
+    echo "  host:port there, e.g. 'vpn.example:51820'. No default is assumed:" >&2
+    echo "  a peer config with the wrong endpoint fails in a way that looks" >&2
+    echo "  like a key problem." >&2
+    exit 1
+}
+
+NAME=""; KIND=""; PUBKEY=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --person) KIND=person; shift ;;
+        --box)    KIND=box;    shift ;;
+        --pubkey) PUBKEY="${2:?--pubkey needs a value}"; shift 2 ;;
+        -*)       echo "wg-add-peer: unknown option $1" >&2; exit 1 ;;
+        *)        [[ -z $NAME ]] || { echo "wg-add-peer: one name only" >&2; exit 1; }
+                  NAME="$1"; shift ;;
+    esac
+done
+
+[[ -n $NAME ]] || { echo "usage: wg-add-peer <name> --person|--box [--pubkey <key>]" >&2; exit 1; }
+[[ -n $KIND ]] || { echo "wg-add-peer: specify --person or --box — there is no default" >&2; exit 1; }
+[[ $NAME =~ ^[a-z][a-z0-9-]{0,31}$ ]] || { echo "wg-add-peer: name must be lowercase [a-z0-9-]" >&2; exit 1; }
+grep -qx "# peer: $NAME" "$CONF" && { echo "wg-add-peer: peer '$NAME' already exists" >&2; exit 1; }
+
+case $KIND in person) LO=2;  HI=9   ;; box) LO=10; HI=254 ;; esac
+
+used=$(grep -oE "AllowedIPs = ${PREFIX//./\\.}\.[0-9]+" "$CONF" | grep -oE '[0-9]+$' || true)
+ADDR=""
+for n in $(seq "$LO" "$HI"); do
+    grep -qx "$n" <<<"$used" || { ADDR="$n"; break; }
+done
+[[ -n $ADDR ]] || { echo "wg-add-peer: no free address in ${PREFIX}.${LO}-${HI} for a ${KIND}" >&2; exit 1; }
+
+umask 077
+PSK=$(wg genpsk)
+PRIV=""
+if [[ -z $PUBKEY ]]; then
+    PRIV=$(wg genkey)
+    PUBKEY=$(wg pubkey <<<"$PRIV")
+fi
+
+cat >> "$CONF" <<EOF
+
+[Peer]
+# peer: $NAME
+PublicKey = $PUBKEY
+PresharedKey = $PSK
+AllowedIPs = ${PREFIX}.${ADDR}/32
+EOF
+
+wg syncconf "$IFACE" <(wg-quick strip "$IFACE")
+
+HUB_PUB=$(wg show "$IFACE" public-key)
+ENDPOINT=$(cat "$ENDPOINT_FILE")
+
+echo "# Development VPN — ${NAME} (${KIND}), ${PREFIX}.${ADDR}"
+[[ -n $PRIV ]] && echo "# Key generated on the hub. Import this, then delete the file."
+echo "[Interface]"
+if [[ -n $PRIV ]]; then
+    echo "PrivateKey = $PRIV"
+else
+    echo "PrivateKey = <the peer already holds this; paste it in on the peer>"
+fi
+cat <<EOF
+Address = ${PREFIX}.${ADDR}/32
+MTU = 1420
+
+[Peer]
+PublicKey = $HUB_PUB
+PresharedKey = $PSK
+AllowedIPs = ${PREFIX}.0/24
+PersistentKeepalive = 25
+Endpoint = ${ENDPOINT}
+EOF

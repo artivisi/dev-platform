@@ -1,0 +1,71 @@
+---
+# Tier 1 — 16 GB desktop, multiuser, ceilings sized for light work.
+#
+# The work here is site maintenance, documentation and feature work on
+# interpreted stacks — not the Spring Boot + Postgres profile the seat budget in
+# the capacity model is derived from. So the ceilings are not that profile's 5 GB
+# peak; they are sized against what a light seat actually holds: an agent session
+# (0,6-1,5 GB), a dev server, a database container, and an occasional asset
+# build. Roughly 2 GB in practice.
+#
+# The arithmetic, for five accounts on 15917 MB:
+#
+#   15917 MB   physical
+#  -  1900 MB   Ubuntu headless (0,7 GB) + one rootless dockerd per active user
+#               (0,2 GB each) + slack
+#  = 14017 MB   available to seats, 2803 MB each across five
+#
+# MemoryMax is therefore 2800M: five seats peaking at once reach 14000 MB and
+# leave 1917 MB for the OS, so the box throttles and then kills the seat
+# responsible instead of drifting into global OOM where the kernel picks a victim
+# at random. That is the point of setting them at all — the failure stays
+# attributable to whoever caused it.
+#
+# Light work never approaches these numbers, which is the intent: enforcement
+# that fires during normal use is mis-sized. If it starts firing, the workload
+# has changed, and the answer is RAM — two DIMM slots are free — not a bigger
+# number here.
+
+dev_tier: "tier1-compact"
+dev_tier_min_ram_mb: 15000
+
+# MemoryHigh throttles and reclaims; MemoryMax kills. The gap between them is
+# where a seat is visibly slow but still recoverable: 400 MB is enough for a
+# person to notice and stop, and too little to matter to the other seats.
+dev_user_memory_high: "2400M"
+dev_user_memory_max: "2800M"
+
+# Ample for interpreted stacks — a dev server, a few containers and a build are
+# a few hundred tasks. High enough never to be met in normal use, low enough
+# that a fork bomb does not take the box with it.
+dev_user_tasks_max: 4096
+
+# Weights are shares, not caps: 100 is systemd's neutral value, so seats divide
+# CPU and I/O evenly under contention and are unrestricted when nobody else
+# wants them. No per-user CPU cap by design — a build that briefly uses every
+# core is the fastest build, and fairness only matters when someone is waiting.
+dev_user_cpu_weight: 100
+dev_user_io_weight: 100
+
+# On. Five accounts share one 218 GB filesystem, and without quotas one filled
+# home stops the other four. 35G hard x 5 = 175 GB of the 200 GB free, leaving
+# 25 GB of headroom. Generous for docs and web work; they would not be for
+# per-user container image stores, which the capacity model budgets at 25 GB
+# each.
+dev_quota_enabled: true
+dev_user_quota_soft: "30G"
+dev_user_quota_hard: "35G"
+
+# The pull-through mirror only pays for itself when images are pulled
+# repeatedly. This box does not run those workloads, so it would cost 0,2 GB of
+# resident memory to cache nothing.
+dev_registry_mirror_enabled: false
+
+# No standing loops: this box carries interactive work, and a loop account would
+# compete with seats for a fixed memory budget.
+dev_e2e_enabled: false
+
+# dev_wireguard_config and dev_ntfy_url come from the box's
+# /etc/dev-platform/host.yml; dev_users from host_vars. Preflight fails the run
+# if any is missing.
+dev_wireguard_enabled: true

@@ -1,0 +1,23 @@
+---
+# Tier 3 — Ryzen 7 / 64 GB new build. 5–6 concurrent seats, CPU-bound.
+
+dev_tier: "tier3-mid"
+dev_tier_min_ram_mb: 62000
+
+dev_user_memory_high: "8G"
+dev_user_memory_max: "10G"
+dev_user_cpu_weight: 100
+dev_user_io_weight: 100
+dev_user_tasks_max: 8192
+
+dev_user_quota_soft: "100G"
+dev_user_quota_hard: "120G"
+
+dev_registry_mirror_enabled: true
+dev_e2e_enabled: true
+
+# dev_wireguard_config, dev_ntfy_url and dev_e2e_projects come from the box's
+# /etc/dev-platform/host.yml; dev_users from host_vars. Preflight fails the run
+# if any is missing.
+dev_quota_enabled: true
+dev_wireguard_enabled: true

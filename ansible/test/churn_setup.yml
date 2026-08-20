@@ -1,0 +1,20 @@
+---
+# Before the churn step: give the surviving user a running container, so
+# verify_users.yml can prove that removing another account does not touch it.
+- name: Start a long-running container for the survivor
+  hosts: dev_boxes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read the passwd database
+      ansible.builtin.getent:
+        database: passwd
+
+    - name: Run the survivor container as {{ dev_survivor }}
+      become: true
+      become_user: "{{ dev_survivor }}"
+      ansible.builtin.command: docker run -d --name survivor alpine sleep 3600
+      changed_when: true
+      environment:
+        DOCKER_HOST: "unix:///run/user/{{ ansible_facts.getent_passwd[dev_survivor][1] }}/docker.sock"
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[dev_survivor][1] }}"

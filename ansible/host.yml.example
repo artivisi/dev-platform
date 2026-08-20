@@ -1,0 +1,36 @@
+---
+# Per-box secrets and box-local settings. Lives ON THE BOX at
+# /etc/dev-platform/host.yml (mode 0600, root), never in git — every box holds a
+# checkout of this repository, so anything committed here is readable by every
+# other box.
+#
+#   pull:  read automatically by the ansible-pull unit
+#   push:  ansible-playbook ... -e @/path/to/this-box.yml site.yml
+#
+# Preflight fails the run if a required key is missing.
+
+# WireGuard client configuration issued by the hub, verbatim. Must contain
+# PersistentKeepalive — the box is behind NAT.
+dev_wireguard_config: |
+  [Interface]
+  PrivateKey = ...
+  Address = 10.8.0.12/32
+
+  [Peer]
+  PublicKey = ...
+  Endpoint = hub.example:51820
+  AllowedIPs = 10.8.0.0/24
+  PersistentKeepalive = 25
+
+# Notification endpoint for standing-loop failures and provisioning failures.
+# This fleet self-hosts ntfy on the hub (see hub/README.md); access is deny-all,
+# so the URL carries basic-auth credentials for the write-only `fleet` user. The
+# pull role's OnFailure unit posts with plain curl, which reads them from the URL.
+# Use the public https name rather than the hub's VPN address: an alerting
+# endpoint that is only reachable over the VPN cannot tell you the VPN is down.
+dev_ntfy_url: "https://fleet:<password>@ntfy.example/dev-fleet"
+
+# Projects whose standing E2E loop runs on this box. Each must be cloned to
+# /srv/e2e/src/<name> and ship bin/e2e.sh at its root.
+dev_e2e_projects:
+  - project-a

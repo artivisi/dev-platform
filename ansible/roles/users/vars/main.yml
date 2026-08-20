@@ -1,0 +1,6 @@
+---
+# Every account that runs a rootless daemon needs lingering, or systemd tears
+# down its session scope — and its containers with it — the moment its last
+# login ends.
+dev_lingering_accounts: >-
+  {{ dev_users + (['e2e'] if (dev_e2e_enabled | bool) else []) }}

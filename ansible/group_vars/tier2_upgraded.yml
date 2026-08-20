@@ -1,0 +1,29 @@
+---
+# Tier 2 — salvaged desktop upgraded to 32 GB DDR3. 2–3 concurrent seats.
+# This is the lowest tier at which multiuser runs under enforced ceilings —
+# tier1_compact is multiuser too, but by opting out of enforcement entirely.
+#
+# Three seats at 10 GB is 30 GB of 30,5 GB usable: the ceilings very nearly sum
+# to physical memory, so a single runaway seat is killed before it can drive the
+# box into global OOM.
+
+dev_tier: "tier2-upgraded"
+dev_tier_min_ram_mb: 30000
+
+dev_user_memory_high: "8G"
+dev_user_memory_max: "10G"
+dev_user_cpu_weight: 100
+dev_user_io_weight: 100
+dev_user_tasks_max: 8192
+
+dev_user_quota_soft: "60G"
+dev_user_quota_hard: "70G"
+
+dev_registry_mirror_enabled: true
+dev_e2e_enabled: true
+
+# dev_wireguard_config, dev_ntfy_url and dev_e2e_projects come from the box's
+# /etc/dev-platform/host.yml; dev_users from host_vars. Preflight fails the run
+# if any is missing.
+dev_quota_enabled: true
+dev_wireguard_enabled: true

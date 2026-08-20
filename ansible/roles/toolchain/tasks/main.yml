@@ -1,0 +1,79 @@
+---
+# The platform installs version MANAGERS, not runtime versions. Which Java,
+# Node, or Python a project needs is that project's business (.sdkmanrc,
+# .nvmrc / package.json engines, .python-version) and each developer installs
+# it into their own $HOME through the manager. The box therefore never carries
+# an opinion about a runtime version that can go stale or collide between
+# users.
+#
+# The one exception is PHP: there is no lightweight per-user PHP manager that
+# does not compile from source, so php-cli and Composer come from the
+# distribution, box-wide. Composer's per-user cache (~/.cache/composer) and
+# per-project vendor/ keep everything else per user. gh is a tool, not a
+# runtime, and is likewise box-wide.
+- name: Install system-wide toolchain packages
+  ansible.builtin.apt:
+    name:
+      - php-cli
+      - php-mbstring
+      - php-xml
+      - php-curl
+      - php-zip
+      - composer
+      - gh
+    state: present
+
+- name: Create the pnpm install directory
+  ansible.builtin.file:
+    path: /opt/pnpm
+    state: directory
+    mode: "0755"
+
+# pnpm, never npm: npm's cache saves the download but still copies every package
+# into every worktree's node_modules. pnpm hardlinks from one content-addressable
+# store, so N worktrees share one physical copy.
+#
+# The published install.sh is deliberately NOT used. Its `pnpm setup` step
+# resolves the home directory from the invoking process rather than $HOME, so
+# under become_user it scans /root and dies with
+# "EACCES: permission denied, scandir '/root'". It also rewrites the user's
+# shell rc file, which this platform owns via /etc/profile.d, and it always
+# fetches the latest release rather than a pinned one.
+#
+# The program is installed once, system-wide: the release is a 146 MB binary
+# plus an 18 MB dist/ tree, and extracting that per account would duplicate
+# ~165 MB per user for no isolation benefit. What must stay per user is
+# PNPM_HOME — the global bin directory, the Node version, and the
+# content-addressable store — and that is set per user in /etc/profile.d.
+- name: Fail on an unsupported architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture in ['x86_64', 'aarch64']
+    fail_msg: >-
+      No pinned pnpm build for architecture '{{ ansible_architecture }}'. Add
+      one to the mapping below rather than falling back to the install script.
+    quiet: true
+
+- name: Install pnpm
+  ansible.builtin.unarchive:
+    src: >-
+      https://github.com/pnpm/pnpm/releases/download/v{{ dev_pnpm_version }}/pnpm-{{
+      {'x86_64': 'linux-x64', 'aarch64': 'linux-arm64'}[ansible_architecture] }}.tar.gz
+    dest: /opt/pnpm
+    remote_src: true
+    owner: root
+    group: root
+    creates: /opt/pnpm/pnpm
+
+- name: Read the passwd database
+  ansible.builtin.getent:
+    database: passwd
+
+# Version managers are deliberately per user rather than shared: one project's
+# toolchain pin must not be able to disturb another user's build.
+- name: Install per-user toolchains
+  ansible.builtin.include_tasks: per_user.yml
+  loop: "{{ dev_users }}"
+  loop_control:
+    loop_var: dev_account
+    label: "{{ dev_account }}"

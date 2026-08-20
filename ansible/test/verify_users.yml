@@ -1,0 +1,92 @@
+---
+# After the churn step. Run with the same --extra-vars as the churn run, plus
+# dev_survivor (the user who was present before and after) and dev_removed.
+- name: Verify account churn
+  hosts: dev_boxes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read the passwd database
+      ansible.builtin.getent:
+        database: passwd
+
+    # --- Removed account -----------------------------------------------------
+
+    - name: The removed account is gone from passwd
+      ansible.builtin.assert:
+        that: dev_removed not in ansible_facts.getent_passwd
+        fail_msg: "{{ dev_removed }} still exists."
+        success_msg: "{{ dev_removed }} is gone from passwd."
+
+    - name: Nothing of the removed account remains
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: v_left
+      loop:
+        - "/home/{{ dev_removed }}"
+        - "/var/lib/systemd/linger/{{ dev_removed }}"
+
+    - name: Assert nothing remains
+      ansible.builtin.assert:
+        that: not item.stat.exists
+        fail_msg: "{{ item.item }} still exists after removing {{ dev_removed }}."
+        success_msg: "{{ item.item }} is gone."
+      loop: "{{ v_left.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: No subordinate range remains for the removed account
+      ansible.builtin.command: "grep -c '^{{ dev_removed }}:' /etc/subuid /etc/subgid"
+      register: v_sub_left
+      changed_when: false
+      failed_when: v_sub_left.rc == 0
+
+    - name: No leftover processes of the removed account
+      ansible.builtin.command: "pgrep -u {{ dev_removed }}"
+      register: v_procs
+      changed_when: false
+      failed_when: v_procs.rc == 0
+
+    # --- Survivor ------------------------------------------------------------
+
+    - name: The survivor's container is still running
+      become: true
+      become_user: "{{ dev_survivor }}"
+      ansible.builtin.command: docker inspect -f '{% raw %}{{.State.Running}}{% endraw %}' survivor
+      register: v_survivor
+      changed_when: false
+      environment:
+        DOCKER_HOST: "unix:///run/user/{{ ansible_facts.getent_passwd[dev_survivor][1] }}/docker.sock"
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[dev_survivor][1] }}"
+
+    - name: Assert the survivor was untouched
+      ansible.builtin.assert:
+        that: v_survivor.stdout | trim == 'true'
+        fail_msg: "{{ dev_survivor }}'s container stopped during the churn run."
+        success_msg: "{{ dev_survivor }}'s container ran through the churn untouched."
+
+    - name: Remove the survivor container
+      become: true
+      become_user: "{{ dev_survivor }}"
+      ansible.builtin.command: docker rm -f survivor
+      changed_when: true
+      environment:
+        DOCKER_HOST: "unix:///run/user/{{ ansible_facts.getent_passwd[dev_survivor][1] }}/docker.sock"
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[dev_survivor][1] }}"
+
+    # --- Every present account ---------------------------------------------
+
+    - name: Every present account has a live rootless socket
+      ansible.builtin.stat:
+        path: "/run/user/{{ ansible_facts.getent_passwd[item][1] }}/docker.sock"
+      register: v_sock
+      loop: "{{ dev_users }}"
+
+    - name: Assert sockets
+      ansible.builtin.assert:
+        that: item.stat.exists
+        fail_msg: "No rootless socket for {{ item.item }}."
+        success_msg: "Rootless socket present for {{ item.item }}."
+      loop: "{{ v_sock.results }}"
+      loop_control:
+        label: "{{ item.item }}"

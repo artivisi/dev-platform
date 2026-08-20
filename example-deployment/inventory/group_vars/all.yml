@@ -1,0 +1,45 @@
+---
+# This organisation's values. Everything here is a choice a deployment makes;
+# everything the platform pins is in platform/ansible/group_vars/all.yml and is
+# deliberately not overridable from here. The two files share no keys.
+
+# --- People ------------------------------------------------------------------
+# Every person who may hold an account on any box in this fleet, with their SSH
+# public keys. PUBLIC KEYS ONLY — this file is in git and every box holds a
+# checkout.
+#
+# An EMPTY ssh_keys list means suspended: the account and its home survive, and
+# nobody can log in until a key is put back. Use scripts/access rather than
+# editing this by hand.
+#
+#   dev_people:
+#     alice:
+#       ssh_keys:
+#         - "ssh-ed25519 AAAA... alice@laptop"
+#         - "ssh-ed25519 AAAA... alice@desktop"
+dev_people: {}
+
+# --- Identity ----------------------------------------------------------------
+dev_timezone: "Asia/Jakarta"
+
+# --- WireGuard hub -----------------------------------------------------------
+# The ssh target of this deployment's hub, used by scripts/access to mint and
+# withdraw peers. See platform/hub/README.md for standing one up.
+dev_hub_ssh: "you@vpn.example.org"
+
+# --- Apt ---------------------------------------------------------------------
+# The archive mirror every box uses. Pick one that is reliable from where your
+# boxes actually sit and test it: a country mirror that answers most of the time
+# turns provisioning into a coin flip, and the failure surfaces as an unrelated
+# package error.
+dev_apt_mirror: "http://archive.ubuntu.com/ubuntu/"
+
+# --- Self-provisioning (ansible-pull) ----------------------------------------
+# THIS repository — the deployment — is what boxes pull. The platform comes with
+# it as the pinned submodule, so a box always runs the platform version this
+# repository has adopted.
+dev_repo_url: "git@github.com:YOUR-ORG/YOUR-DEPLOYMENT-REPO.git"
+dev_repo_branch: "main"
+dev_pull_inventory: "inventory/hosts.ini"
+dev_pull_playbook: "site.yml"
+dev_pull_on_calendar: "*:0/30"

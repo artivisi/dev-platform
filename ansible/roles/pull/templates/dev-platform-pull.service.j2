@@ -1,0 +1,39 @@
+# Managed by Ansible — development-environment (see the Setup Guide).
+#
+# One run of ansible-pull: fetch {{ dev_repo_branch }} of {{ dev_repo_url }} —
+# this organisation's deployment repository — then run {{ dev_pull_playbook }}
+# against this box only. The platform arrives with the clone as a pinned git
+# submodule, so a box runs exactly the platform version this deployment has
+# adopted. Every run is expected to report changed=0 unless the repository
+# moved; drift is corrected either way. Secrets and box-local settings come from
+# {{ dev_pull_host_vars_file }}.
+[Unit]
+Description=Converge this box on the development-environment repository
+After=network-online.target
+Wants=network-online.target
+OnFailure=dev-platform-pull-failed.service
+
+[Service]
+Type=oneshot
+Environment=ANSIBLE_CONFIG={{ dev_pull_checkout_dir }}/ansible.cfg
+{% if not dev_repo_url is match('^/') %}
+# Quoted: systemd splits an unquoted Environment= value on whitespace, so this
+# would set GIT_SSH_COMMAND=ssh and discard the key and every option as
+# 'invalid environment assignment' — git then authenticates with no identity
+# and the pull fails with a bare 'Permission denied (publickey)'.
+Environment="GIT_SSH_COMMAND=ssh -i {{ dev_repo_deploy_key }} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+{% endif %}
+ExecStart=/usr/bin/ansible-pull \
+  --url {{ dev_repo_url }} \
+  --checkout {{ dev_repo_branch }} \
+  --directory {{ dev_pull_checkout_dir }} \
+  --clean \
+  --track-subs \
+  --connection local \
+  --inventory {{ dev_pull_checkout_dir }}/{{ dev_pull_inventory }} \
+  --extra-vars @{{ dev_pull_host_vars_file }} \
+  {{ dev_pull_playbook }}
+# ansible-pull exits 0 when the inventory has no host matching this box — a run
+# that "succeeded" by doing nothing. Fail loudly instead: the box must be
+# listed under its own hostname.
+ExecStartPost=/usr/bin/ansible-inventory -i {{ dev_pull_checkout_dir }}/{{ dev_pull_inventory }} --host %H

@@ -1,0 +1,7 @@
+---
+# Developer accounts, plus the standing-loop service account when loops are
+# enabled. The loop account needs its own rootless daemon for the same reason
+# developers do: it must not depend on a shared root daemon, and it must survive
+# every human logging out.
+dev_rootless_accounts: >-
+  {{ dev_users + (['e2e'] if (dev_e2e_enabled | bool) else []) }}

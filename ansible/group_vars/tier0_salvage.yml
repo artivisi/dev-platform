@@ -1,0 +1,31 @@
+---
+# Tier 0 — salvage, as found. 8 GB, one sequenced seat, no multiuser.
+#
+# The memory ceiling deliberately leaves ~1,5 GB for the OS and the registry
+# mirror. A second user on this tier will be OOM-killed; that is the intended
+# behaviour, and the reason the hardware specification calls this tier
+# single-seat.
+
+dev_tier: "tier0-salvage"
+dev_tier_min_ram_mb: 7000
+
+dev_user_memory_high: "5G"
+dev_user_memory_max: "6G"
+dev_user_cpu_weight: 100
+dev_user_io_weight: 100
+dev_user_tasks_max: 4096
+
+dev_user_quota_soft: "40G"
+dev_user_quota_hard: "45G"
+
+# The mirror costs 0,2 GB and saves re-pulling images on every loop run.
+dev_registry_mirror_enabled: true
+
+# Standing loops are this tier's primary job.
+dev_e2e_enabled: true
+
+# dev_wireguard_config, dev_ntfy_url and dev_e2e_projects come from the box's
+# /etc/dev-platform/host.yml; dev_users from host_vars. Preflight fails the run
+# if any is missing.
+dev_quota_enabled: true
+dev_wireguard_enabled: true

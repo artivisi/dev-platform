@@ -1,0 +1,12 @@
+---
+# Box-local settings for the throwaway droplet. run.sh installs this as
+# /etc/dev-platform/host.yml on the droplet and passes it with -e for push
+# runs — the same file serves both modes, as on a real box.
+dev_ntfy_url: "https://ntfy.sh/devplatform-test-placeholder"
+dev_e2e_projects:
+  - project-a
+
+# Hardware-conditional options, exercised on the droplet for mechanism only.
+dev_lid_ignore: true
+dev_kernel_module_blacklist: [pcspkr]
+dev_docker_data_root: /srv/docker

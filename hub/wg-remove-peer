@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#
+# Removes a WireGuard peer from this hub. Used when a device is lost or a person
+# leaves.
+#
+#   wg-remove-peer <name>
+#
+# Applied with `wg syncconf`, so other peers' tunnels are not dropped. The
+# removed peer's address is freed and will be handed to the next peer minted for
+# that range — which is fine, and is why peers are identified by name and public
+# key rather than by address.
+#
+# This is one of three places access must be withdrawn. The others are the
+# roster in the repository (a developer's key) and the person's own GitHub
+# account. Doing only this one leaves the key working everywhere else.
+
+set -euo pipefail
+
+IFACE=wg0
+CONF="/etc/wireguard/${IFACE}.conf"
+
+[[ $EUID -eq 0 ]] || { echo "wg-remove-peer: must run as root" >&2; exit 1; }
+[[ -f $CONF ]] || { echo "wg-remove-peer: $CONF not found — is this the hub?" >&2; exit 1; }
+
+NAME="${1:-}"
+[[ -n $NAME ]] || { echo "usage: wg-remove-peer <name>" >&2; exit 1; }
+grep -qx "# peer: $NAME" "$CONF" || {
+    echo "wg-remove-peer: no peer called '$NAME' in $CONF" >&2
+    echo "  known peers:" >&2
+    sed -n 's/^# peer: /    /p' "$CONF" >&2
+    exit 1
+}
+
+umask 077
+cp -a "$CONF" "${CONF}.bak-$(date +%Y%m%d-%H%M%S)"
+
+# Delete the [Peer] stanza whose comment names this peer: walk back to the
+# preceding [Peer] line, forward to the blank line that ends the block.
+awk -v name="# peer: $NAME" '
+    /^\[Peer\]/ { buf = $0 "\n"; inblock = 1; drop = 0; next }
+    inblock {
+        buf = buf $0 "\n"
+        if ($0 == name) drop = 1
+        if ($0 ~ /^[[:space:]]*$/) { if (!drop) printf "%s", buf; buf = ""; inblock = 0 }
+        next
+    }
+    { print }
+    END { if (inblock && !drop) printf "%s", buf }
+' "$CONF" > "${CONF}.new"
+
+[[ -s ${CONF}.new ]] || { echo "wg-remove-peer: refusing to write an empty config" >&2; rm -f "${CONF}.new"; exit 1; }
+chmod 600 "${CONF}.new" && mv "${CONF}.new" "$CONF"
+
+wg syncconf "$IFACE" <(wg-quick strip "$IFACE")
+
+echo "removed peer '$NAME'; remaining:"
+sed -n 's/^# peer: /  /p' "$CONF"

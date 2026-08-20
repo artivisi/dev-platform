@@ -1,0 +1,236 @@
+---
+# Fails the run before anything is changed if the inventory is incomplete or
+# the box does not meet the platform's requirements.
+#
+# This role exists because the repository forbids fallback values. Without it,
+# an unset variable would either template as an empty string or silently take a
+# role default, and the box would come up subtly wrong. Here it stops the play.
+#
+# The checks assert PROPERTIES, not release strings: any Ubuntu with systemd,
+# cgroup v2, and unprivileged user namespaces qualifies. The playbook must not
+# have to change when the next LTS ships.
+
+- name: Every required variable is defined
+  ansible.builtin.assert:
+    that:
+      - item in vars
+      - vars[item] is not none
+    fail_msg: >-
+      Required variable '{{ item }}' is not defined for host
+      {{ inventory_hostname }}. Every value must be supplied — this repository
+      does not provide fallback values. Universal values live in
+      group_vars/all.yml, tier values in the tier group_vars, placement in
+      host_vars/<hostname>.yml, secrets in /etc/dev-platform/host.yml on the
+      box (pull) or -e @file (push).
+    quiet: true
+  loop:
+    - dev_people
+    - dev_users
+    - dev_users_absent
+    - dev_tier
+    - dev_tier_min_ram_mb
+    - dev_user_memory_high
+    - dev_user_memory_max
+    - dev_user_cpu_weight
+    - dev_user_io_weight
+    - dev_user_tasks_max
+    - dev_quota_enabled
+    - dev_registry_mirror_enabled
+    - dev_wireguard_enabled
+    - dev_e2e_enabled
+    - dev_pull_enabled
+    - dev_pull_playbook
+    - dev_timezone
+    - dev_apt_mirror
+    - dev_port_block_base
+    - dev_port_block_size
+    - dev_pnpm_version
+    - dev_registry_data_dir
+    - dev_e2e_home
+
+- name: Inventory name equals the box's hostname
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == ansible_facts.hostname
+    fail_msg: >-
+      Inventory name '{{ inventory_hostname }}' does not match the box's
+      hostname '{{ ansible_facts.hostname }}'. ansible-pull limits itself to
+      its own hostname, so a mismatch means the box never provisions itself.
+      Rename one of them.
+    quiet: true
+
+- name: Host is in exactly one capacity tier
+  ansible.builtin.assert:
+    that:
+      - group_names | select('match', '^tier[0-9]') | list | length == 1
+    fail_msg: >-
+      Host {{ inventory_hostname }} is in
+      {{ group_names | select('match', '^tier[0-9]') | list | length }} tier
+      groups ({{ group_names | select('match', '^tier[0-9]') | list }}).
+      A box has exactly one capacity tier.
+    quiet: true
+
+- name: Roster and placement are consistent
+  ansible.builtin.include_tasks: roster.yml
+
+- name: Quota bounds are present when quotas are enabled
+  ansible.builtin.assert:
+    that:
+      - dev_user_quota_soft is defined
+      - dev_user_quota_hard is defined
+    fail_msg: "dev_quota_enabled is true but dev_user_quota_soft/hard are not set."
+    quiet: true
+  when: dev_quota_enabled | bool
+
+- name: Locate the filesystem holding /home
+  ansible.builtin.command: findmnt -no TARGET,FSTYPE --target /home
+  register: dev_home_mnt
+  changed_when: false
+  check_mode: false
+  when: dev_quota_enabled | bool
+
+- name: The filesystem holding /home supports the quota mechanism used here
+  ansible.builtin.assert:
+    that:
+      - dev_home_mnt.stdout.split()[1] == 'ext4'
+    fail_msg: >-
+      /home is on {{ dev_home_mnt.stdout.split()[0] }} ({{
+      dev_home_mnt.stdout.split()[1] }}). Per-user quotas are enabled via the
+      ext4 usrquota mount option; this playbook does not know how to enable
+      them on {{ dev_home_mnt.stdout.split()[1] }}. Use ext4 for /home, or set
+      dev_quota_enabled false for this box and accept that one user can fill
+      the disk for everyone.
+    quiet: true
+  when: dev_quota_enabled | bool
+
+- name: WireGuard configuration is present when WireGuard is enabled
+  ansible.builtin.assert:
+    that:
+      - dev_wireguard_config is defined
+      - dev_wireguard_config | length > 0
+    fail_msg: >-
+      dev_wireguard_enabled is true but dev_wireguard_config is empty. Supply
+      the client config issued by the hub in /etc/dev-platform/host.yml.
+    quiet: true
+  when: dev_wireguard_enabled | bool
+
+- name: Notification endpoint is present when anything can page
+  ansible.builtin.assert:
+    that:
+      - dev_ntfy_url is defined
+      - dev_ntfy_url | length > 0
+    fail_msg: >-
+      dev_ntfy_url is missing but standing loops or self-provisioning are
+      enabled. A loop or a provisioning run that fails with nobody told is the
+      one thing they must never do. Supply it in /etc/dev-platform/host.yml.
+    quiet: true
+  when: (dev_e2e_enabled | bool) or (dev_pull_enabled | bool)
+
+- name: Standing-loop project list is present when loops are enabled
+  ansible.builtin.assert:
+    that:
+      - dev_e2e_projects is defined
+      - dev_e2e_projects is sequence and dev_e2e_projects is not string
+    fail_msg: >-
+      dev_e2e_enabled is true but dev_e2e_projects is missing. Supply the list
+      of projects whose loop runs on this box in /etc/dev-platform/host.yml.
+    quiet: true
+  when: dev_e2e_enabled | bool
+
+- name: Self-provisioning settings are present when pull is enabled
+  ansible.builtin.assert:
+    that:
+      - dev_repo_url is defined and dev_repo_url | length > 0
+      - dev_repo_branch is defined and dev_repo_branch | length > 0
+      - dev_repo_deploy_key is defined
+      - dev_pull_inventory is defined
+      - dev_pull_host_vars_file is defined
+      - dev_pull_checkout_dir is defined
+      - dev_pull_on_calendar is defined
+    fail_msg: "dev_pull_enabled is true but the dev_repo_* / dev_pull_* settings are incomplete."
+    quiet: true
+  when: dev_pull_enabled | bool
+
+- name: Deploy key exists when the repository is remote
+  ansible.builtin.stat:
+    path: "{{ dev_repo_deploy_key }}"
+  register: dev_deploy_key_stat
+  when: (dev_pull_enabled | bool) and not (dev_repo_url is match('^/'))
+
+- name: Fail when the deploy key is missing or exposed
+  ansible.builtin.assert:
+    that:
+      - dev_deploy_key_stat.stat.exists
+      - dev_deploy_key_stat.stat.mode == '0600'
+      - dev_deploy_key_stat.stat.pw_name == 'root'
+    fail_msg: >-
+      {{ dev_repo_deploy_key }} must exist, be owned by root, and be mode 0600
+      for this box to pull {{ dev_repo_url }}. Generate a key pair on the box
+      (ssh-keygen -t ed25519 -N '' -f {{ dev_repo_deploy_key }}) and add the
+      public half as a READ-ONLY deploy key on the repository.
+    quiet: true
+  when: (dev_pull_enabled | bool) and not (dev_repo_url is match('^/'))
+
+- name: Box-local settings file exists when pull is enabled
+  ansible.builtin.stat:
+    path: "{{ dev_pull_host_vars_file }}"
+  register: dev_host_vars_stat
+  when: dev_pull_enabled | bool
+
+- name: Fail when the box-local settings file is missing or exposed
+  ansible.builtin.assert:
+    that:
+      - dev_host_vars_stat.stat.exists
+      - dev_host_vars_stat.stat.mode == '0600'
+    fail_msg: >-
+      {{ dev_pull_host_vars_file }} must exist (mode 0600) — the pull unit
+      passes it as extra vars, and it is where this box's secrets live. See
+      host.yml.example in the repository.
+    quiet: true
+  when: dev_pull_enabled | bool
+
+- name: Installed memory meets the declared tier
+  ansible.builtin.assert:
+    that:
+      - ansible_memtotal_mb >= dev_tier_min_ram_mb
+    fail_msg: >-
+      {{ inventory_hostname }} reports {{ ansible_memtotal_mb }} MB but tier
+      '{{ dev_tier }}' requires at least {{ dev_tier_min_ram_mb }} MB. Either
+      the host is in the wrong tier group or the RAM upgrade has not been
+      fitted. Provisioning it anyway would set per-user memory ceilings the
+      box cannot honour.
+    quiet: true
+
+- name: Operating system is Ubuntu under systemd
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Ubuntu'
+      - ansible_facts.service_mgr == 'systemd'
+    fail_msg: >-
+      {{ inventory_hostname }} runs {{ ansible_facts.distribution }} with
+      {{ ansible_facts.service_mgr }}. The platform is specified for Ubuntu
+      Server (any current LTS) with systemd; the per-user slices, lingering,
+      and rootless Docker setup all assume it.
+    quiet: true
+
+- name: Kernel uses cgroup v2
+  ansible.builtin.stat:
+    path: /sys/fs/cgroup/cgroup.controllers
+  register: dev_cgroup2
+
+- name: Fail when cgroup v2 is unavailable
+  ansible.builtin.assert:
+    that:
+      - dev_cgroup2.stat.exists
+    fail_msg: >-
+      /sys/fs/cgroup/cgroup.controllers is absent, so this host is not running
+      cgroup v2. Per-user memory limits and rootless Docker both depend on it.
+    quiet: true
+
+- name: Report the capacity envelope this box is being provisioned for
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: tier {{ dev_tier }},
+      {{ ansible_memtotal_mb }} MB RAM, {{ ansible_processor_vcpus }} vCPU,
+      {{ dev_users | length }} seat(s) at {{ dev_user_memory_max }} max each,
+      {{ dev_users_absent | length }} account(s) to remove.

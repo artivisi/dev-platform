@@ -1,0 +1,31 @@
+# Managed by Ansible — development-environment (see the Setup Guide).
+#
+# Two things every developer shell on this box needs:
+#
+#   DOCKER_HOST    points at this user's own rootless daemon, never the system
+#                  socket. Testcontainers reads it and works unchanged.
+#   DEV_PORT_BASE  this user's 100-port block. Rootless Docker isolates
+#                  container networks, but published ports still land in the
+#                  host's single port space, so two developers running the same
+#                  service would otherwise collide on the same port.
+#
+# Compose files must reference the block and fail when it is unset:
+#
+#   ports:
+#     - "${DEV_PORT_BASE:?DEV_PORT_BASE unset — see the Developer Guide}:8080"
+
+if [ "$(id -u)" -ge 1000 ]; then
+    DEV_PORT_BASE=$(( {{ dev_port_block_base }} + ( $(id -u) - 1000 ) * {{ dev_port_block_size }} ))
+    export DEV_PORT_BASE
+    export DEV_PORT_BLOCK_SIZE={{ dev_port_block_size }}
+    export DOCKER_HOST="unix:///run/user/$(id -u)/docker.sock"
+
+    # pnpm the program is shared (/opt/pnpm); PNPM_HOME is not — it holds this
+    # user's Node version, global bins, and content-addressable store. Exported
+    # here rather than letting the pnpm installer rewrite ~/.bashrc, so one
+    # file governs the shell environment for every account.
+    # $PNPM_HOME/bin is pnpm's global bin directory and must be on PATH before
+    # pnpm will install a global Node at all.
+    export PNPM_HOME="$HOME/.local/share/pnpm"
+    export PATH="/opt/pnpm:$PNPM_HOME/bin:$PNPM_HOME:$HOME/.local/bin:$PATH"
+fi

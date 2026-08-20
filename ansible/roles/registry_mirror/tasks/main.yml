@@ -1,0 +1,68 @@
+---
+# The mirror runs under podman as a system unit, not inside any developer's
+# rootless daemon: a mirror that dies when one user logs out is worse than no
+# mirror. It is also the one component that must not require the system Docker
+# daemon, which this platform keeps masked.
+
+- name: Configure the registry pull-through cache
+  when: dev_registry_mirror_enabled | bool
+  block:
+
+    - name: Install podman
+      ansible.builtin.apt:
+        name: podman
+        state: present
+
+    - name: Create the mirror data directory
+      ansible.builtin.file:
+        path: "{{ dev_registry_data_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Install the mirror unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/registry-mirror.service
+        mode: "0644"
+        content: |
+          # Managed by Ansible — development-environment (see the Setup Guide).
+          [Unit]
+          Description=Registry pull-through cache
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          # --network=host, not -p: in proxy mode the registry contacts the
+          # upstream during startup and *panics* if it cannot resolve it —
+          # it does not retry. On podman's bridge network that DNS lookup
+          # fails, so the service crash-loops with no error of its own:
+          #   panic: Get "https://registry-1.docker.io/v2/": ... i/o timeout
+          # Host networking uses the host resolver and removes the dependency
+          # on container DNS entirely.
+          #
+          # Because host networking means the container binds the host's
+          # interfaces directly, both listeners are pinned to loopback
+          # explicitly. REGISTRY_HTTP_DEBUG_ADDR matters: registry 3 opens a
+          # debug server on :5001 across all interfaces by default, and these
+          # boxes expose no inbound ports.
+          ExecStartPre=-/usr/bin/podman rm -f registry-mirror
+          ExecStart=/usr/bin/podman run --rm --name registry-mirror \
+            --network=host \
+            -e REGISTRY_HTTP_ADDR=127.0.0.1:5000 \
+            -e REGISTRY_HTTP_DEBUG_ADDR=127.0.0.1:5001 \
+            -e REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io \
+            -v {{ dev_registry_data_dir }}:/var/lib/registry \
+            docker.io/library/registry:3
+          ExecStop=/usr/bin/podman stop -t 10 registry-mirror
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart registry mirror
+
+    - name: Enable the mirror
+      ansible.builtin.systemd_service:
+        name: registry-mirror
+        enabled: true
+        state: started
+        daemon_reload: true

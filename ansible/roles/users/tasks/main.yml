@@ -1,0 +1,207 @@
+---
+# Accounts on this box, driven by the roster (dev_people) and this host's
+# placement (dev_users / dev_users_absent). Removal runs first so that a name
+# moved from one list to the other in the same commit is handled in one run.
+
+- name: Remove accounts listed as absent
+  ansible.builtin.include_tasks: remove.yml
+  loop: "{{ dev_users_absent }}"
+  loop_control:
+    loop_var: dev_account
+    label: "{{ dev_account }}"
+
+- name: Create developer accounts
+  ansible.builtin.user:
+    name: "{{ item }}"
+    shell: /bin/bash
+    create_home: true
+    password: '!'          # locked: key-only, never a password
+    state: present
+  loop: "{{ dev_users }}"
+
+# Standing loops run under their own account, never a developer's: a loop tied
+# to a person stops when that person's session ends and inherits whatever is in
+# their environment. Created here, alongside the other accounts, so the
+# rootless_docker role can give it a daemon too.
+- name: Create the standing-loop service account
+  ansible.builtin.user:
+    name: e2e
+    home: "{{ dev_e2e_home }}"
+    shell: /bin/bash
+    create_home: true
+    system: true
+    password: '!'
+    state: present
+  when: dev_e2e_enabled | bool
+
+- name: Read the passwd database
+  ansible.builtin.getent:
+    database: passwd
+
+# 750, not 755: the isolation argument in the Setup Guide rests on
+# one user being unable to read another's repositories, credentials, and agent
+# history. Container namespaces enforce that for Docker; file modes must
+# enforce it for the plain filesystem.
+- name: Home directories are private
+  ansible.builtin.file:
+    path: "{{ ansible_facts.getent_passwd[item][4] }}"
+    state: directory
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0750"
+  loop: "{{ dev_users }}"
+
+# The roster is authoritative: exclusive=true means a key removed from
+# dev_people is removed from the box on the next run, and a key added for a
+# second device appears. Keys are joined with newlines — the module treats the
+# string as one key per line.
+- name: Install authorized keys from the roster
+  ansible.posix.authorized_key:
+    user: "{{ item }}"
+    key: "{{ dev_people[item].ssh_keys | join('\n') }}"
+    exclusive: true
+    state: present
+  loop: "{{ dev_users }}"
+  when: dev_people[item].ssh_keys | length > 0
+
+# An empty ssh_keys list means suspended: the account and its home survive
+# untouched and nothing can authenticate, which is the state to hold someone in
+# while a replacement key is on its way. It is deliberately not removal —
+# removal deletes the home directory.
+#
+# Handled separately because authorized_key refuses an empty key, so the file is
+# truncated directly instead.
+- name: Ensure .ssh exists for suspended accounts
+  ansible.builtin.file:
+    path: "{{ ansible_facts.getent_passwd[item][4] }}/.ssh"
+    state: directory
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0700"
+  loop: "{{ dev_users }}"
+  when: dev_people[item].ssh_keys | length == 0
+
+- name: Empty authorized_keys for suspended accounts
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ ansible_facts.getent_passwd[item][4] }}/.ssh/authorized_keys"
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0600"
+  loop: "{{ dev_users }}"
+  when: dev_people[item].ssh_keys | length == 0
+
+# Rootless Docker maps container UIDs into a subordinate range. The range is
+# derived from the account's UID, which is stable for the account's lifetime —
+# never from position in a list, or removing one user would shift every later
+# user's range and orphan their image store. Ranges cannot collide: they are
+# spaced exactly one range width apart.
+- name: Ensure subordinate UID range
+  ansible.builtin.lineinfile:
+    path: /etc/subuid
+    regexp: "^{{ item }}:"
+    line: "{{ item }}:{{ 100000 + (ansible_facts.getent_passwd[item][1] | int) * 65536 }}:65536"
+    create: true
+    mode: "0644"
+  loop: "{{ dev_lingering_accounts }}"
+
+- name: Ensure subordinate GID range
+  ansible.builtin.lineinfile:
+    path: /etc/subgid
+    regexp: "^{{ item }}:"
+    line: "{{ item }}:{{ 100000 + (ansible_facts.getent_passwd[item][1] | int) * 65536 }}:65536"
+    create: true
+    mode: "0644"
+  loop: "{{ dev_lingering_accounts }}"
+
+# Lingering must be enabled before anything touches `systemctl --user`. Without
+# it systemd tears down the user's session scope when their last SSH connection
+# closes, stopping their rootless dockerd and killing every running container —
+# so an overnight agent run dies the moment the laptop disconnects.
+- name: Enable lingering
+  ansible.builtin.command: "loginctl enable-linger {{ item }}"
+  args:
+    creates: "/var/lib/systemd/linger/{{ item }}"
+  loop: "{{ dev_lingering_accounts }}"
+
+- name: Wait for each user manager to come up
+  ansible.builtin.wait_for:
+    path: "/run/user/{{ ansible_facts.getent_passwd[item][1] }}"
+    timeout: 60
+  loop: "{{ dev_lingering_accounts }}"
+
+# Applies to every user-<uid>.slice. Because rootless containers are children of
+# the user's own dockerd, this single ceiling covers that user's containers and
+# their JVMs together — which is why rootless Docker and user slices are
+# specified as a pair.
+- name: Ensure the user slice drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/user-.slice.d
+    state: directory
+    mode: "0755"
+
+- name: Install per-user resource limits
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/user-.slice.d/50-limits.conf
+    mode: "0644"
+    content: |
+      # Managed by Ansible — development-environment (see the Setup Guide).
+      # Tier: {{ dev_tier }}
+      #
+      # MemoryHigh throttles and reclaims; MemoryMax kills. Both are set on
+      # purpose: the box degrades visibly before it fails, and then it fails
+      # loudly rather than swapping itself into uselessness. A tier that sets
+      # them to `infinity` has opted out of enforcement deliberately, not left
+      # them unset — see that tier's section in the Hardware Specification.
+      [Slice]
+      MemoryHigh={{ dev_user_memory_high }}
+      MemoryMax={{ dev_user_memory_max }}
+      CPUWeight={{ dev_user_cpu_weight }}
+      IOWeight={{ dev_user_io_weight }}
+      TasksMax={{ dev_user_tasks_max }}
+  notify: Reload systemd for slices
+
+# One file, box-wide, driven by UID. It never carries anything user-specific
+# and never a credential: those live in each user's $HOME.
+- name: Install shared shell environment
+  ansible.builtin.template:
+    src: dev-platform.sh.j2
+    dest: /etc/profile.d/dev-platform.sh
+    mode: "0644"
+
+- name: Apply per-user disk quotas
+  when: dev_quota_enabled | bool
+  block:
+
+    - name: Locate the quota mount
+      ansible.builtin.command: findmnt -no TARGET --target /home
+      register: dev_quota_target_out
+      changed_when: false
+
+      check_mode: false
+    # Bounds are compared before being set so an unchanged run reports no
+    # change; setquota takes kilobytes, so the tier's human-readable sizes are
+    # converted here rather than trusting the tool's unit parsing.
+    - name: Apply quota bounds
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          target='{{ dev_quota_target_out.stdout | trim }}'
+          want='{{ (dev_user_quota_soft | human_to_bytes) // 1024 }} {{ (dev_user_quota_hard | human_to_bytes) // 1024 }}'
+          cur=$(repquota -up "$target" | awk -v u='{{ item }}' '$1==u {print $4, $5}')
+          if [ "$cur" = "$want" ]; then exit 0; fi
+          setquota -u '{{ item }}' $want 0 0 "$target"
+          echo CHANGED
+        executable: /bin/bash
+      register: dev_setquota
+      changed_when: "'CHANGED' in dev_setquota.stdout"
+      loop: "{{ dev_users }}"
+
+# --- Verify -------------------------------------------------------------------
+# The claims the rest of the platform depends on, checked rather than assumed.
+- name: Lingering is on for every daemon account
+  ansible.builtin.command: "loginctl show-user {{ item }} -p Linger --value"
+  register: dev_linger_check
+  changed_when: false
+  failed_when: dev_linger_check.stdout | trim != 'yes'
+  loop: "{{ dev_lingering_accounts }}"

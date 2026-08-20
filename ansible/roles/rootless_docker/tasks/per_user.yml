@@ -1,0 +1,97 @@
+---
+- name: "Resolve uid and home for {{ dev_account }}"
+  ansible.builtin.set_fact:
+    dev_uid: "{{ ansible_facts.getent_passwd[dev_account][1] }}"
+    dev_home: "{{ ansible_facts.getent_passwd[dev_account][4] }}"
+
+- name: "Create the Docker config directory for {{ dev_account }}"
+  ansible.builtin.file:
+    path: "{{ dev_home }}/.config/docker"
+    state: directory
+    owner: "{{ dev_account }}"
+    group: "{{ dev_account }}"
+    mode: "0755"
+
+# Rootless Docker gives every account a separate image store, so without a
+# mirror the same image is pulled once per account on every refresh. The mirror
+# makes isolation cost disk but not bandwidth.
+#
+# On a box with a second disk (dev_docker_data_root declared in host_vars) the
+# store moves off $HOME: overlay churn is the heaviest write pattern on the box
+# and benefits most from being separated from everything else. The user's
+# quota then no longer covers images — the hardware specification budgets the
+# second disk for that.
+- name: "Create the image store of {{ dev_account }} on the data disk"
+  ansible.builtin.file:
+    path: "{{ dev_docker_data_root }}/{{ dev_account }}"
+    state: directory
+    owner: "{{ dev_account }}"
+    group: "{{ dev_account }}"
+    mode: "0710"          # what dockerd itself sets on its data-root
+  when: dev_docker_data_root is defined
+
+- name: "Write the daemon configuration of {{ dev_account }}"
+  ansible.builtin.copy:
+    dest: "{{ dev_home }}/.config/docker/daemon.json"
+    owner: "{{ dev_account }}"
+    group: "{{ dev_account }}"
+    mode: "0644"
+    content: "{{ dev_daemon_json | to_nice_json }}\n"
+  vars:
+    dev_daemon_json: >-
+      {{ ({'registry-mirrors': ['http://127.0.0.1:5000']} if (dev_registry_mirror_enabled | bool) else {})
+         | combine({'data-root': dev_docker_data_root ~ '/' ~ dev_account} if dev_docker_data_root is defined else {}) }}
+  register: dev_daemon_json_file
+
+- name: "Install rootless Docker for {{ dev_account }}"
+  become: true
+  become_user: "{{ dev_account }}"
+  ansible.builtin.command: dockerd-rootless-setuptool.sh install --force
+  args:
+    creates: "{{ dev_home }}/.config/systemd/user/docker.service"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ dev_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ dev_uid }}/bus"
+    PATH: "/usr/bin:/usr/sbin:/bin:/sbin"
+    HOME: "{{ dev_home }}"
+
+- name: "Enable the rootless daemon for {{ dev_account }}"
+  become: true
+  become_user: "{{ dev_account }}"
+  ansible.builtin.systemd_service:
+    name: docker
+    scope: user
+    enabled: true
+    state: started
+    daemon_reload: true
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ dev_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ dev_uid }}/bus"
+
+- name: "Restart the rootless daemon of {{ dev_account }} after a configuration change"
+  become: true
+  become_user: "{{ dev_account }}"
+  ansible.builtin.systemd_service:
+    name: docker
+    scope: user
+    state: restarted
+  when: dev_daemon_json_file.changed
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ dev_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ dev_uid }}/bus"
+
+# Verified, not assumed: the socket is what every tool of this user talks to.
+- name: "Wait for the rootless socket of {{ dev_account }}"
+  ansible.builtin.wait_for:
+    path: "/run/user/{{ dev_uid }}/docker.sock"
+    timeout: 60
+
+- name: "The rootless daemon of {{ dev_account }} answers"
+  become: true
+  become_user: "{{ dev_account }}"
+  ansible.builtin.command: docker info --format '{% raw %}{{.ServerVersion}}{% endraw %}'
+  changed_when: false
+  environment:
+    DOCKER_HOST: "unix:///run/user/{{ dev_uid }}/docker.sock"
+    XDG_RUNTIME_DIR: "/run/user/{{ dev_uid }}"
+    PATH: "/usr/bin:/usr/sbin:/bin:/sbin"

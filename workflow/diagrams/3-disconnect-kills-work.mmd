@@ -1,0 +1,11 @@
+---
+config:
+  theme: neutral
+  flowchart: { htmlLabels: true, padding: 12 }
+---
+flowchart LR
+    A["You close the laptop<br/>or the Wi-Fi drops"] --> B["The ssh connection ends"]
+    B --> C["The terminal on the box<br/>shuts down"]
+    C --> D["Your work stops<br/>halfway through"]
+    classDef bad fill:#fdf2f2,stroke:#c0392b,stroke-width:2px
+    class D bad

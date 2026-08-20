@@ -1,0 +1,32 @@
+---
+# Per-box placement. Copy to host_vars/<hostname>.yml — the file name must be
+# the inventory name, which preflight requires to equal the box's hostname.
+#
+# Both lists hold names from dev_people. A name not in the roster fails
+# preflight; so does a name in both lists. Prefer scripts/access over editing
+# these by hand — it gets the ordering right.
+#
+# dev_users        accounts that must exist on this box
+# dev_users_absent accounts that must NOT exist — REMOVAL DELETES THE HOME
+#                  DIRECTORY. Nothing is archived.
+
+dev_users:
+  - alice
+  - bob
+
+dev_users_absent: []
+
+# Whether this box provisions itself from this repository on a timer.
+dev_pull_enabled: true
+
+# --- Hardware-conditional settings (optional) ---------------------------------
+# Declared only when this machine needs them. Absence means "not this hardware",
+# not a default.
+#
+# dev_lid_ignore: true                  # laptop: never suspend on lid close
+# dev_mbpfan: true                      # Intel Mac laptop: replace the fan curve
+# dev_kernel_module_blacklist: [radeon] # e.g. 15-inch Mac with a hybrid GPU
+# dev_docker_data_root: /srv/docker     # two-disk layout: per-user image stores
+# dev_kdump_enabled: false              # give back the crashkernel reservation
+# dev_network_optional_interfaces:      # ethernet ports with no cable in them,
+#   - enp8s0                            # or boot waits 120s for each of them

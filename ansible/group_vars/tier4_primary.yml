@@ -1,0 +1,26 @@
+---
+# Tier 4 — Ryzen 9 9950X / 128 GB primary workstation.
+#
+# Seats stop being the binding constraint here; stack size is. The per-user
+# ceiling is sized for a full stack (10–12 GB) plus the seat itself.
+
+dev_tier: "tier4-primary"
+dev_tier_min_ram_mb: 125000
+
+dev_user_memory_high: "16G"
+dev_user_memory_max: "20G"
+dev_user_cpu_weight: 100
+dev_user_io_weight: 100
+dev_user_tasks_max: 16384
+
+dev_user_quota_soft: "250G"
+dev_user_quota_hard: "300G"
+
+dev_registry_mirror_enabled: true
+dev_e2e_enabled: true
+
+# dev_wireguard_config, dev_ntfy_url and dev_e2e_projects come from the box's
+# /etc/dev-platform/host.yml; dev_users from host_vars. Preflight fails the run
+# if any is missing.
+dev_quota_enabled: true
+dev_wireguard_enabled: true

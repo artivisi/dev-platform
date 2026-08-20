@@ -2,7 +2,7 @@
 name = "artivisi-proposal"
 version = "0.1.0"
 entrypoint = "lib.typ"
-authors = ["Endy Muhardin <endy@artivisi.com>"]
+authors = ["Endy Muhardin <info@artivisi.com>"]
 description = "ArtiVisi commercial proposal template — cover page, brand palette, header/footer, table styling"
 repository = "https://github.com/artivisi/proposal-template"
 keywords = ["proposal", "artivisi", "commercial", "indonesia"]

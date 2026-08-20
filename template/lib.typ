@@ -76,7 +76,7 @@
   metadata: (),
   vendor-name: "PT ArtiVisi Intermedia",
   vendor-tagline: "Software engineering & technical training",
-  vendor-contact: "endy@artivisi.com · artivisi.com",
+  vendor-contact: "info@artivisi.com · artivisi.com",
   font: ("New Computer Modern", "Times New Roman", "Libertinus Serif"),
   body,
 ) = {

@@ -4,7 +4,11 @@
 # this organisation's deployment repository — then run {{ dev_pull_playbook }}
 # against this box only. The platform arrives with the clone as a pinned git
 # submodule, so a box runs exactly the platform version this deployment has
-# adopted. Every run is expected to report changed=0 unless the repository
+# adopted. Note there is no --track-subs: that flag moves submodules to the
+# latest commit on their branch, which would defeat the pinning entirely, and it
+# resolves against origin/master so it fails outright on a repository whose
+# default branch is main. Plain recursive cloning — the git module's default —
+# checks the submodule out at the pinned commit, which is the intent. Every run is expected to report changed=0 unless the repository
 # moved; drift is corrected either way. Secrets and box-local settings come from
 # {{ dev_pull_host_vars_file }}.
 [Unit]
@@ -28,7 +32,6 @@ ExecStart=/usr/bin/ansible-pull \
   --checkout {{ dev_repo_branch }} \
   --directory {{ dev_pull_checkout_dir }} \
   --clean \
-  --track-subs \
   --connection local \
   --inventory {{ dev_pull_checkout_dir }}/{{ dev_pull_inventory }} \
   --extra-vars @{{ dev_pull_host_vars_file }} \

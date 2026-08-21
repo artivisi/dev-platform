@@ -209,6 +209,21 @@ Everything here happens on *your own laptop*, before the box is involved at
 all. It takes about half an hour and you never do it again. Do not skip steps:
 each one is needed by a later one.
 
+Three programs end up on your laptop, and that is the complete list —
+everything else runs on the box:
+
+#table(
+  columns: (auto, 1fr, auto),
+  align: (left, left, left),
+  table.header([Program], [What it is for], [Installed in]),
+  [Git, with *Git Bash*], [The terminal, `ssh-keygen`, and `ssh`],
+    [Recipe 1, Step 1],
+  [*WireGuard*], [The VPN that makes the box reachable],
+    [Recipe 1, Step 3],
+  [*VS Code*], [Previewing documents that live on the box],
+    [Recipe 6],
+)
+
 === Step 1 — Install Git
 
 Git is the program that records changes, and you will use it *on the box* —

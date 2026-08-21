@@ -151,13 +151,34 @@ Code sessions, output and all.
   terminal outside tmux is one dropped connection away from losing your work.
 ]
 
+== Which runs inside which
+
+The pieces stack, and knowing the stack is how you always know where a
+command runs. You type into Git Bash on your laptop. Git Bash runs `ssh`,
+and `ssh` hands everything you type to the box. On the box, your tmux
+session holds *windows* — like browser tabs, one per piece of work. A window
+is a terminal: Claude Code runs inside one, and when Claude Code records a
+change, it runs `git` in there too.
+
+#figure(
+  image("diagrams/5-which-runs-in-which.png", width: 100%),
+  caption: [Which runs inside which. Only Git Bash and `ssh` are on your
+  laptop. Everything from the tmux session inward — windows, Claude Code,
+  `git` — runs on the box, which is why it survives your laptop
+  disconnecting.]
+)
+
+This is also why the prompts in this guide matter: `laptop$` means you are
+in Git Bash, outside the stack; `box-01$` means you are inside it, in a
+window on the box.
+
 == The whole picture
 
 Now put several people on the same box, and add the place the work is
 *shared*.
 
 #figure(
-  image("diagrams/5-whole-picture.png", width: 100%),
+  image("diagrams/6-whole-picture.png", width: 100%),
   caption: [Everyone has their own account and their own tmux on the same box.
   Work is shared through GitHub, not by looking at each other's files.]
 )

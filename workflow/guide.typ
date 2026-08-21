@@ -190,9 +190,11 @@ each one is needed by a later one.
 
 === Step 1 — Install Git
 
-Git is the program that records changes and moves them between your machine,
-the box, and GitHub. On Windows it also installs *Git Bash*, which is the
-terminal you will use for everything else.
+Git is the program that records changes, and you will use it *on the box* —
+Recipe 2 sets it up there. Installing it on your laptop is for the three
+things that come with it: *Git Bash*, the terminal you will type every
+command into; `ssh-keygen`, which creates your key pair; and `ssh`, which
+connects you to the box.
 
 *Windows.* Download from #link("https://git-scm.com/download/win")[git-scm.com/download/win]
 and run the installer. Accept every default — there are many screens and none
@@ -229,7 +231,7 @@ If you see a version number, Step 1 worked.
     Copy.
   - *Paste:* right-click, or `Shift-Insert`.
 
-  This catches everyone once. When you paste the long key line in Step 6, use
+  This catches everyone once. When you paste the long key line in Step 5, use
   right-click.
 ]
 
@@ -240,25 +242,7 @@ If you see a version number, Step 1 worked.
   Bash.
 ]
 
-=== Step 3 — Tell Git who you are
-
-Every change you record carries your name and email, so colleagues can see who
-did what. Set it once:
-
-```console
-laptop$ git config --global user.name "Your Full Name"
-laptop$ git config --global user.email "you@example.org"
-```
-
-Use your real name and your work email. Check it took:
-
-```console
-laptop$ git config --global --list
-user.name=Your Full Name
-user.email=you@example.org
-```
-
-=== Step 4 — Install the VPN
+=== Step 3 — Install the VPN
 
 The box is not reachable from the open internet. The VPN puts your laptop on
 the same private network.
@@ -273,7 +257,7 @@ the same private network.
 On campus you can reach the box without this. Connect it anyway, so it is
 already working the first time you try from home.
 
-=== Step 5 — Create your key pair
+=== Step 4 — Create your key pair
 
 A *key pair* replaces a password. It is two files that belong together: one you
 keep and one you hand out. Nothing you type is ever sent anywhere, which is why
@@ -318,7 +302,7 @@ SHA256:examplefingerprintexamplefingerprintexample you@example.org
 
 Those two file names are the whole point of the next step.
 
-=== Step 6 — Know which key is which
+=== Step 5 — Know which key is which
 
 This is the single most important thing on this page. You now have two files,
 in a hidden folder called `.ssh` inside your home directory:
@@ -383,7 +367,7 @@ ending with your email. You need it twice, in the next two steps.
   wrong file.
 ]
 
-=== Step 7 — Register the public key with GitHub
+=== Step 6 — Register the public key with GitHub
 
 This is what lets you download projects and send your work back.
 
@@ -392,7 +376,7 @@ This is what lets you download projects and send your work back.
 + Click *New SSH key*.
 + *Title:* something that identifies the machine, like `Laptop kantor`.
 + *Key type:* Authentication Key.
-+ *Key:* paste the line you copied in Step 6.
++ *Key:* paste the line you copied in Step 5.
 + Click *Add SSH key*.
 
 Check it worked:
@@ -411,18 +395,18 @@ Hi yourname! You've successfully authenticated, but GitHub does not provide shel
 That sentence looks like an error. It is not — "does not provide shell access"
 is normal and expected. Seeing your own username is the success signal.
 
-=== Step 8 — Send the same public key for box access
+=== Step 7 — Send the same public key for box access
 
 GitHub and the development box are two separate systems and neither knows about
 the other, so the same public key must be registered in both places.
 
-Send *the same single line* from Step 6 to whoever runs the box, by email or
+Send *the same single line* from Step 5 to whoever runs the box, by email or
 chat. Say which machine it is from, in case you later add a second laptop.
 
 You are sending the contents of `id_ed25519.pub`. If what you paste has BEGIN
-and END lines in it, you have opened the wrong file — see Step 6.
+and END lines in it, you have opened the wrong file — see Step 5.
 
-=== Step 9 — Check the whole chain
+=== Step 8 — Check the whole chain
 
 You are waiting on one thing from another person — your account on the box —
 so confirm what you can:
@@ -432,7 +416,6 @@ so confirm what you can:
   align: (left, left),
   table.header([Check], [Expected]),
   [`git --version`], [a version number],
-  [`git config --global user.name`], [your name],
   [WireGuard shows *Active*], [a green or connected state],
   [`ls ~/.ssh/`], [`id_ed25519` and `id_ed25519.pub`],
   [`ssh -T git@github.com`], [`Hi yourname! You've successfully authenticated`],
@@ -479,12 +462,21 @@ When you are told your account is ready, go to Recipe 2.
 
   Now `ssh box-01` is enough.
 
-+ *Tell Git who you are — again, on the box.* Step 3 configured your laptop;
-  the box is a different computer:
++ *Tell Git who you are.* Every change you record carries your name and
+  email, so colleagues can see who did what. Your commits happen on the box,
+  so this is where it is set — once:
 
   ```console
   box-01$ git config --global user.name "Your Full Name"
   box-01$ git config --global user.email "you@example.org"
+  ```
+
+  Use your real name and your work email. Check it took:
+
+  ```console
+  box-01$ git config --global --list
+  user.name=Your Full Name
+  user.email=you@example.org
   ```
 
 + *Log in to Claude Code, once:*
@@ -729,7 +721,7 @@ revoked *is* the protection.
   reach — including the website, which deploys itself.
 
 Then, when you have a working machine again, generate a fresh key pair and go
-through Recipe 1 from Step 5: new key, register the public half with GitHub,
+through Recipe 1 from Step 4: new key, register the public half with GitHub,
 send the same public half for box access.
 
 #note[

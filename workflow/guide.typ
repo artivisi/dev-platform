@@ -29,7 +29,7 @@ The guide is in four parts and they get progressively more technical. Most
 people never need the last one.
 
 #table(
-  columns: (auto, 1fr, auto),
+  columns: (auto, 1.1fr, 1fr),
   align: (left, left, left),
   table.header([Part], [What it covers], [Read it if]),
   [*1*], [Why this box exists and how the pieces fit together], [Always — it is

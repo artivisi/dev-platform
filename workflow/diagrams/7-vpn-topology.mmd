@@ -1,0 +1,28 @@
+---
+config:
+  theme: neutral
+  flowchart: { htmlLabels: true, padding: 12, nodeSpacing: 30, rankSpacing: 70 }
+---
+flowchart LR
+    subgraph VPN["The VPN &mdash; one private network, 10.9.0.x"]
+        direction LR
+        subgraph People["People &mdash; .2 to .9"]
+            direction TB
+            You["Your laptop<br/>10.9.0.4"]
+            Col["A colleague's laptop<br/>10.9.0.3"]
+        end
+        Hub["Hub<br/>10.9.0.1"]
+        subgraph Boxes["Boxes &mdash; .10 and up"]
+            direction TB
+            B1["box-01<br/>10.9.0.10"]
+            B2["box-02<br/>10.9.0.11"]
+        end
+        You --- Hub
+        Col --- Hub
+        Hub --- B1
+        Hub --- B2
+    end
+    style VPN fill:#f7f8fc,stroke:#2e3192,stroke-width:2px
+    style People fill:#fdf2f2,stroke:#c0392b,stroke-width:2px
+    style Boxes fill:#f0f9f0,stroke:#58c034,stroke-width:2px
+    style Hub fill:#fdf6ec,stroke:#c2761a,stroke-width:2px

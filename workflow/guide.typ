@@ -681,6 +681,14 @@ box and prints `listening on http://localhost:8080`, that `localhost` is the
 box talking about itself. Typing `localhost:8080` into your browser asks
 your *laptop*, where nothing is listening.
 
+#figure(
+  image("diagrams/7-vpn-topology.png", width: 90%),
+  caption: [Who has which address. People's laptops take `.2`–`.9`, boxes
+  `.10` and up; the hub at `.1` only relays and you never think about it.
+  GitHub is not on this network — `push` and `pull` travel the ordinary
+  internet.]
+)
+
 + *Find your ports.* Every account owns a block of a hundred port numbers,
   so two people's servers never collide:
 

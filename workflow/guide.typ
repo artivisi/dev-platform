@@ -658,8 +658,13 @@ For `.docx` there is no faithful viewer inside VS Code — extensions exist,
 but they approximate the layout, and a document about to be sent to someone
 deserves better. Right-click the file in the tree → *Download*, and open the
 copy in Word. Do not edit that copy — the thing to change is the source on
-the box, and the output is rebuilt from it. Markdown needs none of this: it
-is its own output, and GitHub renders it after you push.
+the box, and the output is rebuilt from it.
+
+Source files preview too, not only outputs. Markdown has a built-in preview —
+`Ctrl-Shift-V`, or the split-view icon in the tab bar — and the *Tinymist
+Typst* extension renders Typst live while you type. The built PDF is still
+what you check before a document leaves; the live preview is for while you
+work.
 
 #note[
   *Two costs, so nothing surprises you.* The helper VS Code installs lives

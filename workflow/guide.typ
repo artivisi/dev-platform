@@ -308,7 +308,7 @@ can use it until it is revoked. Which is why the next paragraph matters.
 #note[
   *The trade-off, stated plainly.* Anyone who obtains that file can act as you
   until the key is revoked. If your laptop is ever lost or stolen, that is what
-  Recipe 9 is for — read it now so you know it exists, and act the same hour if
+  Recipe 11 is for — read it now so you know it exists, and act the same hour if
   it ever happens.
 ]
 
@@ -624,7 +624,101 @@ and do not delete anything. Ask Claude Code:
   me both versions, explain what each side changed, and help me combine them.
 ]
 
-== Recipe 6 — Leave work running and come back to it
+== Recipe 6 — Preview a document you are building
+
+The source you edit and the output built from it — PDF or `.docx` — both
+live on the box. Your screen does not. Previewing means fetching the output
+to your laptop and opening it there, and *WinSCP* makes that a double-click:
+it shows your folders on the box next to your laptop's, over the same key
+and VPN as `ssh`.
+
+*Once — install it and save the connection:*
+
++ Install WinSCP from #link("https://winscp.net")[winscp.net]. (There is no
+  WinSCP for macOS; #link("https://cyberduck.io")[Cyberduck] does the same
+  job and reads your key as it is, with no conversion step.)
++ In *New Session*: *File protocol* `SFTP`, *Host name* `10.9.0.10` — the
+  box's address, the same one you `ssh` to — *User name* yours.
++ *Advanced → SSH → Authentication → Private key file*: pick
+  `C:\Users\YourName\.ssh\id_ed25519`. The file dialog shows only `.ppk`
+  files at first — switch its filter to *All Files* to see the key. WinSCP
+  then offers to convert it to its own format; accept, and it saves
+  `id_ed25519.ppk` beside the original.
++ *Save* the session, then *Login*. You should see `src` and `wt` — your
+  folders on the box.
+
+#note[
+  *`id_ed25519.ppk` is your private key* — the same secret in the container
+  WinSCP reads, not a new key. Every rule from Recipe 1 Step 5 applies to it
+  unchanged: it never leaves your laptop, and revoking the key (Recipe 11)
+  covers both files at once.
+]
+
+*Every time:*
+
++ VPN on, open WinSCP, open the saved session.
++ Go into the project folder and double-click the PDF. It opens in your
+  usual viewer, on your laptop.
++ After the output is rebuilt on the box, double-click again — `F5`
+  refreshes the file list. Your viewer shows a fetched copy, so it does not
+  change until you fetch again.
+
+The same double-click opens a `.docx` in Word. Do not edit these copies —
+the thing to change is the source on the box, and the output is rebuilt from
+it. Markdown needs none of this: it is its own output, and GitHub renders it
+after you push.
+
+== Recipe 7 — Preview a running application
+
+A website or web application is not a file to fetch — it is a server to
+browse. The server runs on the box; the browser runs on your laptop; the VPN
+connects the two.
+
+Addresses first, because `localhost` catches everyone here. On the VPN each
+machine has an address of its own — the box is `10.9.0.10`, and your laptop
+got one with its `.conf` file, say `10.9.0.4`. When a server starts on the
+box and prints `listening on http://localhost:8080`, that `localhost` is the
+box talking about itself. Typing `localhost:8080` into your browser asks
+your *laptop*, where nothing is listening.
+
++ *Find your ports.* Every account owns a block of a hundred port numbers,
+  so two people's servers never collide:
+
+  ```console
+  box-01$ echo $DEV_PORT_BASE
+  20300
+  ```
+
+  Yours are `20300`–`20399`, in this example.
+
++ *Start the server on one of your ports, listening on all addresses* — not
+  only on the box's own `localhost`. Docker Compose projects already do both
+  through the `${DEV_PORT_BASE:?}` publishing rule in Part 4. A server run
+  directly needs telling, for example:
+
+  ```console
+  box-01$ pnpm dev --host 0.0.0.0 --port $DEV_PORT_BASE
+  ```
+
+  `0.0.0.0` means "every address this machine has", which is what makes the
+  server reachable from outside the box. The flag is named `--host`,
+  `--bind` or `address` depending on the tool.
+
++ *Browse from your laptop:* the box's address plus your port —
+  `http://10.9.0.10:20300`. Refresh as you work.
+
+If the page does not load, check in order: is WireGuard *Active*; did the
+server print an address (`0.0.0.0` or the box's own) rather than
+`localhost`; is the port the one you started it on.
+
+#note[
+  *Nothing here is public.* The box has no ports open to the internet; the
+  only road to `10.9.0.10:20300` is the VPN. That also means a colleague on
+  the VPN *can* open it — the quickest way to show work in progress without
+  deploying anything.
+]
+
+== Recipe 8 — Leave work running and come back to it
 
 This is the reason the box exists. You can start something long, disconnect,
 go home, and pick it up exactly where it was.
@@ -656,7 +750,7 @@ you were away.
   in Part 3 is a list of `Ctrl-b` plus one letter.
 ]
 
-== Recipe 7 — Work on two things at once
+== Recipe 9 — Work on two things at once
 
 Each piece of work gets its own *window* inside your tmux session. Windows are
 like tabs: you switch between them instantly, and the ones you are not looking
@@ -684,7 +778,7 @@ A practical arrangement: window 0 for the curriculum document, window 1 for
 the website, window 2 for a shell to run commands in. Claude Code can run in
 several windows at once, working on different things.
 
-== Recipe 8 — When something looks wrong
+== Recipe 10 — When something looks wrong
 
 Work through these in order.
 
@@ -712,7 +806,7 @@ Work through these in order.
   [Something is slow, or a command was killed],
     [You may have hit your memory limit — see Limits in Part 3.],
   [Your laptop is lost or stolen],
-    [Recipe 9, immediately. Two things: tell whoever runs the box, and delete
+    [Recipe 11, immediately. Two things: tell whoever runs the box, and delete
      the key from your own GitHub yourself.],
 )
 
@@ -720,7 +814,7 @@ If none of these fit, ask Claude Code before asking a person. Paste the exact
 error message; it can usually read the situation faster than a description of
 it.
 
-== Recipe 9 — If your laptop is lost or stolen
+== Recipe 11 — If your laptop is lost or stolen
 
 Do these the same hour. Not tomorrow, not after you have looked for it
 properly. Your key has no passphrase — by deliberate choice, because typing one

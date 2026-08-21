@@ -627,46 +627,49 @@ and do not delete anything. Ask Claude Code:
 == Recipe 6 — Preview a document you are building
 
 The source you edit and the output built from it — PDF or `.docx` — both
-live on the box. Your screen does not. Previewing means fetching the output
-to your laptop and opening it there, and *WinSCP* makes that a double-click:
-it shows your folders on the box next to your laptop's, over the same key
-and VPN as `ssh`.
+live on the box. Your screen does not. *VS Code* bridges that: it runs on
+your laptop but opens folders on the box, over the same key and VPN as
+`ssh`, and with one extension a PDF renders in a tab straight from the box.
 
-*Once — install it and save the connection:*
+*Once — install and connect:*
 
-+ Install WinSCP from #link("https://winscp.net")[winscp.net]. (There is no
-  WinSCP for macOS; #link("https://cyberduck.io")[Cyberduck] does the same
-  job and reads your key as it is, with no conversion step.)
-+ In *New Session*: *File protocol* `SFTP`, *Host name* `10.9.0.10` — the
-  box's address, the same one you `ssh` to — *User name* yours.
-+ *Advanced → SSH → Authentication → Private key file*: pick
-  `C:\Users\YourName\.ssh\id_ed25519`. The file dialog shows only `.ppk`
-  files at first — switch its filter to *All Files* to see the key. WinSCP
-  then offers to convert it to its own format; accept, and it saves
-  `id_ed25519.ppk` beside the original.
-+ *Save* the session, then *Login*. You should see `src` and `wt` — your
-  folders on the box.
-
-#note[
-  *`id_ed25519.ppk` is your private key* — the same secret in the container
-  WinSCP reads, not a new key. Every rule from Recipe 1 Step 5 applies to it
-  unchanged: it never leaves your laptop, and revoking the key (Recipe 11)
-  covers both files at once.
-]
++ Install VS Code from
+  #link("https://code.visualstudio.com")[code.visualstudio.com] — Windows or
+  macOS, the steps are the same from here on.
++ Inside it, install the *Remote - SSH* extension (by Microsoft).
++ Click the `><` button in the bottom-left corner → *Connect to Host* →
+  `box-01`. The name is already in the list because VS Code reads the same
+  `~/.ssh/config` you wrote in Recipe 2, and it connects with the same key —
+  nothing to convert, nothing new to set up. The first connection takes a
+  minute while VS Code installs its helper on the box.
++ *File → Open Folder* → the project's folder → *OK*. The file tree on the
+  left is now the box, not your laptop.
++ Install the *vscode-pdf* extension. While connected, the install button
+  reads *Install in SSH: box-01* — that is the one you want.
 
 *Every time:*
 
-+ VPN on, open WinSCP, open the saved session.
-+ Go into the project folder and double-click the PDF. It opens in your
-  usual viewer, on your laptop.
-+ After the output is rebuilt on the box, double-click again — `F5`
-  refreshes the file list. Your viewer shows a fetched copy, so it does not
-  change until you fetch again.
++ VPN on, open VS Code — it reopens where you left off.
++ Click the PDF in the file tree. It renders in a tab, read straight from
+  the box, so there is no copy to keep fresh. When the output is rebuilt,
+  the tab re-renders; if it ever does not, close and reopen it.
 
-The same double-click opens a `.docx` in Word. Do not edit these copies —
-the thing to change is the source on the box, and the output is rebuilt from
-it. Markdown needs none of this: it is its own output, and GitHub renders it
-after you push.
+For `.docx` there is no faithful viewer inside VS Code — extensions exist,
+but they approximate the layout, and a document about to be sent to someone
+deserves better. Right-click the file in the tree → *Download*, and open the
+copy in Word. Do not edit that copy — the thing to change is the source on
+the box, and the output is rebuilt from it. Markdown needs none of this: it
+is its own output, and GitHub renders it after you push.
+
+#note[
+  *Two costs, so nothing surprises you.* The helper VS Code installs lives
+  in your home directory on the box and counts against your disk quota —
+  about half a gigabyte. And VS Code is a full editor on those same files:
+  using it to edit is fine — its saves land in the same folder Claude Code
+  and `git` see — but the work still belongs in tmux, and a long job started
+  from a VS Code terminal outside tmux dies with your connection, exactly as
+  Part 1 warns.
+]
 
 == Recipe 7 — Preview a running application
 

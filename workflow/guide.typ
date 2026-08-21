@@ -298,7 +298,7 @@ You will see something like:
 Your identification has been saved in /c/Users/YourName/.ssh/id_ed25519
 Your public key has been saved in /c/Users/YourName/.ssh/id_ed25519.pub
 The key fingerprint is:
-SHA256:IuwIGkbxeKJmR5+xSLoElyZGDaGkQCaJLEjRHXLjsbs you@example.org
+SHA256:examplefingerprintexamplefingerprintexample you@example.org
 ```
 
 Those two file names are the whole point of the next step.
@@ -345,7 +345,7 @@ you ever copy:
 
 ```console
 laptop$ cat ~/.ssh/id_ed25519.pub
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICIYjZ2pxHTXpFjr/cMf9mx0+7UZdNElilCQvZvdDa2w you@example.org
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexamplekeyexamplekeyexamplekeyexamplekeyexa you@example.org
 ```
 
 Select that whole line and copy it. It is one line, beginning `ssh-ed25519` and
@@ -353,10 +353,19 @@ ending with your email. You need it twice, in the next two steps.
 
 #note[
   *How to tell instantly whether you are about to leak the private key.* The
-  public key is *one short line* starting `ssh-ed25519`. The private key is
-  *many lines* between `-----BEGIN OPENSSH PRIVATE KEY-----` and
-  `-----END OPENSSH PRIVATE KEY-----`. If what you are about to paste has
-  BEGIN and END lines, stop — that is the wrong file.
+  public key is *one short line* starting `ssh-ed25519`, like the one above.
+  The private key looks completely different — many lines between a BEGIN
+  marker and an END marker:
+
+  ```
+  -----BEGIN OPENSSH PRIVATE KEY-----
+  ...many lines of letters, digits, + and /...
+  ...(not reproduced here, even as an example)...
+  -----END OPENSSH PRIVATE KEY-----
+  ```
+
+  If what you are about to paste has BEGIN and END lines, stop — that is the
+  wrong file.
 ]
 
 === Step 6 — Register the public key with GitHub

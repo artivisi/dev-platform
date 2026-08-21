@@ -348,7 +348,7 @@ Access lives in three places and a key left in any one of them still works:
   is the path. Until that key is gone they can still push to any repository
   they could before.
 
-Then have them generate a fresh key pair and go through Recipe 1, Steps 4 to 7
+Then have them generate a fresh key pair and go through Recipe 1, Steps 5 to 8
 of the Developer Guide again.
 
 From the person's side this is two actions, and that is all the Developer Guide

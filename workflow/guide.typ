@@ -855,6 +855,9 @@ Work through these in order.
   [Your terminal scrollbar does nothing],
     [tmux keeps its own history. Press `Ctrl-b` then `[` to scroll, `q` to
      leave. The mouse wheel also works.],
+  [Selecting text with the mouse copies nothing to your laptop],
+    [tmux took the drag. Hold *Shift* (Windows) or *Option* (macOS) while
+     dragging, then copy as usual.],
   [`git push` is rejected],
     [Someone else pushed first. Run `git pull`, resolve anything it reports,
      then `git push` again.],
@@ -946,6 +949,13 @@ key.
   `Ctrl-b` `[`. The mouse wheel is configured to enter that mode
   automatically. One exception: full-screen programs, Claude Code included,
   may handle the wheel themselves — `Ctrl-b` `[` always works.
+
+  The same setting changes copying. A plain mouse drag is taken by tmux: the
+  selection lands in tmux's own buffer on the box — `Ctrl-b` `]` pastes it
+  there — and never reaches your laptop's clipboard. To copy *to the laptop*,
+  hold *Shift* (Git Bash, Windows Terminal) or *Option* (macOS Terminal)
+  while dragging: the terminal then selects natively, and `Ctrl-C` or `⌘C`
+  works as usual.
 ]
 
 == git, every command you need

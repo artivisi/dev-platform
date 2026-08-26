@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
 """Change someone's access to the fleet, at one of three levels.
 
-    scripts/access grant   <name> --key '<pubkey>' --box <box>   create the account
-    scripts/access revoke  <name> [--key SUBSTR]   suspend; keep the account and files
-    scripts/access restore <name> --key '<pubkey>' give access back
-    scripts/access purge   <name>                  delete the account AND its home
-    scripts/access prune   <name>                  after purge: drop from the roster
+    platform/scripts/access grant   <name> --key '<pubkey>' --box <box>   create the account
+    platform/scripts/access revoke  <name> [--key SUBSTR]   suspend; keep the account and files
+    platform/scripts/access restore <name> --key '<pubkey>' give access back
+    platform/scripts/access purge   <name>                  delete the account AND its home
+    platform/scripts/access prune   <name>                  after purge: drop from the roster
 
-Run from a checkout on the operator's machine, against the inventory. Never on a
-box: a box holds a READ-ONLY deploy key, so it could not push the roster change,
-and without that change the next ansible-pull would undo whatever it just did.
-The repository is the source of truth; access is a change to it.
+Run from inside a DEPLOYMENT checkout on the operator's machine — the repository
+that holds inventory/, site.yml and ansible.cfg, with this platform as its
+platform/ submodule. The working directory decides which deployment is edited:
+the script finds the git toplevel of the current directory and refuses to run
+unless that is a deployment. It is platform code and holds no inventory itself.
+
+Never on a box: a box holds a READ-ONLY deploy key, so it could not push the
+roster change, and without that change the next ansible-pull would undo
+whatever it just did. The repository is the source of truth; access is a change
+to it.
 
 Which level to use
 ------------------
@@ -39,8 +45,36 @@ import re
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INV = os.path.join(ROOT, "ansible", "inventory")
+
+
+def die(msg):
+    print("access: " + msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def deployment_root():
+    """The deployment checkout this run edits: the git toplevel of the current
+    directory, verified to look like one. Not the script's own location — that
+    is the platform submodule, which by rule holds no inventory."""
+    r = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        die("not inside a git checkout. cd into the deployment repository — the "
+            "one with inventory/, site.yml and ansible.cfg — and run "
+            "platform/scripts/access from there.")
+    root = r.stdout.strip()
+    for rel in ("inventory/hosts.ini", "inventory/group_vars/all.yml",
+                "site.yml", "ansible.cfg"):
+        if not os.path.exists(os.path.join(root, rel)):
+            die("%s is not a deployment checkout: %s is missing. cd into the "
+                "deployment repository (see example-deployment/ for its layout) "
+                "and run platform/scripts/access from there — not from the "
+                "platform repository or its submodule directory." % (root, rel))
+    return root
+
+
+ROOT = deployment_root()
+INV = os.path.join(ROOT, "inventory")
 ALL_YML = os.path.join(INV, "group_vars", "all.yml")
 HOST_VARS = os.path.join(INV, "host_vars")
 def default_hub():
@@ -56,11 +90,6 @@ def default_hub():
         return None
     m = re.search(r'^dev_hub_ssh:\s*["\']?([^"\'\n]+)', s, re.M)
     return m.group(1).strip() if m else None
-
-
-def die(msg):
-    print("access: " + msg, file=sys.stderr)
-    sys.exit(1)
 
 
 def read(p):
@@ -171,7 +200,7 @@ def apply(boxes, what):
             subprocess.run(["ansible-playbook", "-i", "inventory/hosts.ini",
                             "-e", "@" + tmp, "--limit", box, "--tags", "users",
                             "site.yml"],
-                           cwd=os.path.join(ROOT, "ansible"), check=True)
+                           cwd=ROOT, check=True)
         finally:
             os.unlink(tmp)
 

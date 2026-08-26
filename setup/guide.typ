@@ -246,8 +246,10 @@ every box.
 
 == Changing someone's access
 
-`scripts/access` performs each change as one command against this inventory,
-from a checkout on your machine. It edits the roster or the placement lists,
+`platform/scripts/access` performs each change as one command against this
+inventory, run from inside the deployment checkout on your machine — the
+working directory tells it which deployment it is editing, and it refuses to
+run anywhere else. It edits the roster or the placement lists,
 commits, pushes, applies the `users` role to the boxes concerned, and moves the
 person's VPN peer — the parts that used to be a runbook, in the order that
 avoids the trap below.

@@ -959,6 +959,29 @@ key.
   `⌘R` again to give the wheel back to tmux. (iTerm2: hold *Option*.)
 ]
 
+Mouse reporting is a genuine trade — wheel-scrolling against copying to the
+laptop — and the keyboard is unaffected either way. Exactly what it governs:
+
+#table(
+  columns: (1fr, 1fr),
+  align: (left, left),
+  table.header([tmux has the mouse (reporting *on*)],
+    [The terminal has it (reporting *off*, or Shift held)]),
+  [Wheel scrolls tmux's history],
+    [Wheel does nothing — scroll with `Ctrl-b` `[`],
+  [Click a window name in the status bar to switch],
+    [`Ctrl-b` `0`–`9`, or `Ctrl-b` `w`],
+  [Drag resizes panes],
+    [Keyboard resize only],
+  [Drag selects into tmux's buffer; `Ctrl-b` `]` pastes it on the box],
+    [Drag selects natively; `Ctrl-C` or `⌘C` copies to the laptop],
+)
+
+If `Ctrl-b` `[` is all the scrolling you need, leave reporting off. Two
+things to know: the macOS Terminal toggle is per window, and every new window
+starts with it *on*; and Claude Code does not use the mouse, so nothing in the
+daily flow changes with it off.
+
 == git, every command you need
 
 #table(

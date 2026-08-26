@@ -856,8 +856,8 @@ Work through these in order.
     [tmux keeps its own history. Press `Ctrl-b` then `[` to scroll, `q` to
      leave. The mouse wheel also works.],
   [Selecting text with the mouse copies nothing to your laptop],
-    [tmux took the drag. Hold *Shift* (Windows) or *Option* (macOS) while
-     dragging, then copy as usual.],
+    [tmux took the drag. Windows: hold *Shift* while dragging. macOS
+     Terminal: `⌘R` turns mouse reporting off — copy, then `⌘R` again.],
   [`git push` is rejected],
     [Someone else pushed first. Run `git pull`, resolve anything it reports,
      then `git push` again.],
@@ -952,10 +952,11 @@ key.
 
   The same setting changes copying. A plain mouse drag is taken by tmux: the
   selection lands in tmux's own buffer on the box — `Ctrl-b` `]` pastes it
-  there — and never reaches your laptop's clipboard. To copy *to the laptop*,
-  hold *Shift* (Git Bash, Windows Terminal) or *Option* (macOS Terminal)
-  while dragging: the terminal then selects natively, and `Ctrl-C` or `⌘C`
-  works as usual.
+  there — and never reaches your laptop's clipboard. To copy *to the laptop*
+  the terminal has to select natively instead. In Git Bash and Windows
+  Terminal, hold *Shift* while dragging. macOS Terminal has no such key:
+  turn off *View → Allow Mouse Reporting* (`⌘R`), select and `⌘C`, then
+  `⌘R` again to give the wheel back to tmux. (iTerm2: hold *Option*.)
 ]
 
 == git, every command you need

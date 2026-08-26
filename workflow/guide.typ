@@ -515,6 +515,30 @@ When you are told your account is ready, go to Recipe 2.
   user.email=you@example.org
   ```
 
++ *Give the box its own key for GitHub.* Your laptop's key never leaves your
+  laptop, and the box is a different computer — so `git` on the box has
+  nothing to identify you with yet. Make the box a key of its own, exactly as
+  in Recipe 1 Step 4, and register it with GitHub as a second key:
+
+  ```console
+  box-01$ ssh-keygen -t ed25519 -C "you@example.org box-01"
+  box-01$ cat ~/.ssh/id_ed25519.pub
+  ```
+
+  Three presses of Enter again, then the one `ssh-ed25519` line goes to
+  #link("https://github.com/settings/keys")[github.com/settings/keys] →
+  *New SSH key*, with the box's name as its title. Check it, from the box
+  this time — it asks whether to trust GitHub, type `yes`:
+
+  ```console
+  box-01$ ssh -T git@github.com
+  Hi yourname! You've successfully authenticated, but GitHub does not provide shell access.
+  ```
+
+  This key is for GitHub only; nothing to send to whoever runs the box. It
+  lives in your home directory there, which nobody else on the box can read,
+  and it is deleted with your account.
+
 + *Log in to Claude Code, once:*
 
   ```console
@@ -868,7 +892,8 @@ revoked *is* the protection.
 
 Then, when you have a working machine again, generate a fresh key pair and go
 through Recipe 1 from Step 4: new key, register the public half with GitHub,
-send the same public half for box access.
+send the same public half for box access. The box's own GitHub key (Recipe 2)
+is untouched — it was never on the laptop.
 
 #note[
   *Your files are safe, and nothing is deleted.* Revoking access is not

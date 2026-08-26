@@ -58,8 +58,12 @@ through the hub, so there is no NAT here and nothing depends on `iptable_nat`.
   once, by anyone, for any reason — leaves the rules in `/etc/ufw/user.rules`
   but nothing loads them at boot, and the next reboot produces exactly the
   symptom above: every peer handshakes, the hub answers ping, peers cannot
-  reach each other. Check `systemctl is-enabled ufw` (must say `enabled`),
-  and after any change to the hub, **reboot it and confirm a laptop can ssh
+  reach each other. Check `systemctl is-enabled ufw` (must say `enabled`).
+  Note that `ufw enable` does **not** repair this: it sets `ENABLED=yes` in
+  `/etc/ufw/ufw.conf` and loads the rules now, but if the unit was disabled
+  with `systemctl disable ufw` it stays disabled and nothing runs
+  `ufw-init` at boot — `sudo systemctl enable ufw` is a separate, required
+  step. After any change to the hub, **reboot it and confirm a laptop can ssh
   to a box over the tunnel** — that is the only test that proves persistence.
   On a hub that also runs Docker, `FORWARD` policy `DROP` comes from Docker
   too, so with ufw off the drop is silent and total.

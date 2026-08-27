@@ -725,8 +725,8 @@ boxes expose no inbound ports.
 
 *What.* Box-wide: `php-cli` and Composer from the distribution, `gh`, and one
 pinned `pnpm` binary at `/opt/pnpm`. Per user: the working directories
-(`~/src`, `~/wt`, `~/bin`, `~/.local/bin`, `PNPM_HOME`), SDKMAN, uv, Claude
-Code, and an initial `~/.tmux.conf`. *No runtime versions.*
+(`~/src`, `~/wt`, `~/bin`, `~/.local/bin`, `PNPM_HOME`), SDKMAN, uv, `npm` and
+`npx`, Claude Code, and an initial `~/.tmux.conf`. *No runtime versions.*
 
 *Why managers, not runtimes.* Which Java, Node, or Python a project needs is
 that project's business (`.sdkmanrc`, `.nvmrc` / `engines`,
@@ -736,6 +736,15 @@ Java developer, and a devops user share a box without the box holding an
 opinion about any runtime version — nothing to go stale, nothing to collide.
 Version managers are per user for the same reason: one project's pin cannot
 disturb another user's build.
+
+*Why npm is installed when Node is not.* `pnpm env use --global` installs the
+`node` package, which ships the binary alone — no `npm`, `npx` or `corepack`.
+The playbook installs npm into the same per-user global bin directory. pnpm can
+do this before any runtime exists: the two launchers are written at provisioning
+time and start working the moment the developer installs a Node. Run before
+that, they exit with `exec: node: not found` — the correct hard failure rather
+than a silent default. This makes npm *available*, not preferred; the Developer
+Guide gives the reasons pnpm remains the default.
 
 *The PHP exception.* There is no lightweight per-user PHP manager that does
 not compile from source, so `php-cli` and Composer come from the
@@ -751,7 +760,7 @@ it resolves the home directory from the invoking process rather than `$HOME`
 (so it fails under automation), rewrites the user's shell rc which
 `profile.d` already owns here, and always fetches the latest release.
 
-*Verify:* `sudo -iu alice bash -lc 'sdk version; pnpm --version; uv --version; claude --version'`.
+*Verify:* `sudo -iu alice bash -lc 'sdk version; pnpm --version; uv --version; claude --version; command -v npm npx'`.
 
 == e2e_loops
 

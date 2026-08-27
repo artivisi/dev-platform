@@ -1023,6 +1023,9 @@ Set up before your first login, the same for everyone:
   [Claude Code], [Installed. You log in with *your own* account on first use.],
   [Version managers — SDKMAN, pnpm, uv], [For installing Java, Node and Python
     *per project*. The box installs no runtime itself.],
+  [`npm` and `npx`], [Installed alongside pnpm, but neither runs until you have
+    a Node — `pnpm env use --global <version>` gives you one. Prefer `pnpm`; the
+    reasons are under Dependency caches.],
   [PHP, Composer, `gh`], [Box-wide, from the distribution.],
   [Your own Docker], [`docker` works and is yours alone — your containers and
     images are invisible to other users.],
@@ -1163,9 +1166,16 @@ multiplies install directories — without a shared store, N worktrees mean N
 downloads and N disk copies.
 
 - *Java / Maven* — `~/.m2/repository` is yours and every worktree shares it.
-- *Node* — *pnpm only, never npm.* pnpm keeps one content-addressable store and
-  hardlinks into each worktree; after the first install the rest are near
-  instant.
+- *Node* — *both are installed; prefer `pnpm`.* pnpm keeps one
+  content-addressable store and hardlinks into each worktree, so after the first
+  install the rest are near instant. npm copies every package into every
+  worktree, which on this box shows up as a quota failure rather than a full
+  disk. The stronger reason is correctness: `npm install` in a repository that
+  has a `pnpm-lock.yaml` ignores it and writes `package-lock.json`, so two
+  developers resolve different dependency trees from the same commit. npm's flat
+  `node_modules` also lets code import a package it never declared, which then
+  fails for whoever used pnpm. Use `pnpm install`, `pnpm run` and `pnpm dlx`
+  (the `npx` equivalent); reach for npm only when a tool genuinely requires it.
 - *Python* — *uv only, never system pip.*
 - *PHP* — Composer's cache works like `~/.m2`. `vendor/` is per-worktree churn.
 

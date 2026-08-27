@@ -32,6 +32,29 @@
 # created so `pnpm env use --global <version>` works on first login; uv
 # installs Python interpreters on demand.
 
+# npm and npx do not come with the Node install: `pnpm env use --global`
+# installs the `node` package, which ships the binary and nothing else. They are
+# installed here instead, into the same global bin directory.
+#
+# Installing them before any runtime exists is deliberate. pnpm writes the two
+# launcher scripts without needing a Node itself, and they start working the
+# moment the developer installs one. Run before that, npm exits with
+# `exec: node: not found` — the correct hard failure, not a silent default.
+#
+# Unpinned, like SDKMAN, uv and Claude Code: this is per-user tooling, and npm
+# has to track whichever Node the developer chose. Only pnpm — one shared binary
+# the playbook downloads itself — is pinned.
+- name: "Install npm and npx for {{ dev_account }}"
+  become: true
+  become_user: "{{ dev_account }}"
+  ansible.builtin.command:
+    cmd: /opt/pnpm/pnpm add -g npm
+    creates: "{{ dev_home }}/.local/share/pnpm/bin/npm"
+  environment:
+    HOME: "{{ dev_home }}"
+    PNPM_HOME: "{{ dev_home }}/.local/share/pnpm"
+    PATH: "/opt/pnpm:{{ dev_home }}/.local/share/pnpm/bin:/usr/bin:/bin"
+
 - name: "Install uv for {{ dev_account }}"
   become: true
   become_user: "{{ dev_account }}"

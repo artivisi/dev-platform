@@ -25,7 +25,11 @@ if [ "$(id -u)" -ge 1000 ]; then
     # here rather than letting the pnpm installer rewrite ~/.bashrc, so one
     # file governs the shell environment for every account.
     # $PNPM_HOME/bin is pnpm's global bin directory and must be on PATH before
-    # pnpm will install a global Node at all.
+    # pnpm will install a global Node at all: both `pnpm add -g` and the node
+    # that `pnpm env use --global` installs are linked there. $PNPM_HOME itself
+    # is deliberately not on PATH — it holds only bin/, global/ and store/, and
+    # never an executable. Older pnpm used it as the global bin directory; the
+    # pinned one does not.
     export PNPM_HOME="$HOME/.local/share/pnpm"
-    export PATH="/opt/pnpm:$PNPM_HOME/bin:$PNPM_HOME:$HOME/.local/bin:$PATH"
+    export PATH="/opt/pnpm:$PNPM_HOME/bin:$HOME/.local/bin:$PATH"
 fi

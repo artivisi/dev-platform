@@ -1,7 +1,7 @@
 ---
-# Roster and placement checks. Included by preflight on every run and by
-# inventory-check.yml in CI, so a pull request that breaks the roster cannot
-# merge — and cannot reach a box.
+# Roster and placement checks. Included by preflight on every run, and by
+# inventory-check.yml, which a deployment runs against its own inventory to
+# catch a broken roster before it reaches a box.
 
 - name: Roster is a mapping
   ansible.builtin.assert:

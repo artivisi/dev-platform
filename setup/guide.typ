@@ -240,9 +240,15 @@ dev_users_absent: []
 
 `preflight` rejects: a placed name that is not in the roster; a name in both
 lists; a roster entry without a well-formed key; the name `e2e` (the loop
-service account). The same checks run in CI on every pull request
-(`platform/ansible/inventory-check.yml`), so a broken roster fails the PR rather than
-every box.
+service account). `platform/ansible/inventory-check.yml` runs those same
+checks offline, against this inventory and without touching a box:
+
+```bash
+ansible-playbook -i inventory/hosts.ini platform/ansible/inventory-check.yml
+```
+
+Run it on a roster or placement change, or wire it into this repository's CI,
+so a broken roster fails before the merge rather than on every box.
 
 == Changing someone's access
 
@@ -826,8 +832,9 @@ and the template only emits this line for a remote one.
 
 *Consequences to accept.* The box needs outbound Git access, and the deploy
 key grants read of the whole private repository — which is why secrets are
-not in it. `main` is production: a merge is a deploy to every box. The CI
-check and the droplet harness are how a change is tested before it lands.
+not in it. `main` is production: a merge is a deploy to every box. The
+inventory check and the droplet harness are how a change is tested before it
+lands.
 
 *Verify:* `systemctl list-timers dev-platform-pull.timer`;
 `journalctl -u dev-platform-pull.service -o cat | grep -E 'RECAP|changed='`.

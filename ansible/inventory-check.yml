@@ -1,7 +1,7 @@
 ---
 # Offline validation of the roster and placement — the same assertions
-# preflight makes on a box, run in CI so a pull request that would fail on
-# every box cannot merge.
+# preflight makes on a box, without a box. Run it before merging a roster or
+# placement change, so a change that would fail on every box fails here first.
 #
 #   ansible-playbook -i inventory/hosts.ini platform/ansible/inventory-check.yml
 #

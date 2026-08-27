@@ -14,7 +14,7 @@ Three documents, one per audience, split at two hand-off points:
 | `hardware/spec.typ` | People who buy, assemble, triage | Capacity model (sizing primitives → seats), build tiers 0–3, per-hardware-class runbooks **up to the OS booting**, and the per-tier values the playbook writes into a box (rendered from `ansible/group_vars/tier*.yml`) |
 | `setup/guide.typ` | People who provision and operate boxes | How a box provisions itself (`ansible-pull`) or is pushed to; what lives where (roster, placement, secrets); user management as a git workflow; one section per Ansible role — what, why, inventory values, verify; troubleshooting; the droplet harness. **Universal across tiers.** |
 | `workflow/guide.typ` | Developers with an account | What you get and what you bring (own Claude login, own runtimes via managers, own credentials); limits and how to read them; folder conventions, caches, ports; agent workflow, tmux session model, juggling; standing E2E loops; what does not run here. **Identical on every tier** — a tier changes how many people and stacks fit, never the workflow. |
-| `ansible/` | — | The playbook the Setup Guide describes: `site.yml`, roles, inventory (roster + placement + tiers), `host.yml.example` for per-box secrets, `inventory-check.yml` for CI, and the DigitalOcean harness under `test/` |
+| `ansible/` | — | The playbook the Setup Guide describes: `site.yml`, roles, inventory (roster + placement + tiers), `host.yml.example` for per-box secrets, `inventory-check.yml` for validating a deployment's roster without a box, and the DigitalOcean harness under `test/` |
 | `shared/` | — | Typst modules imported by the documents — layout primitives and the capacity tables |
 | `template/` | — | ArtiVisi Typst template (brand palette + logo); English cover chrome via `badge:` / `prepared-for-label:` |
 
@@ -55,8 +55,8 @@ ansible-playbook -i inventory/hosts.ini -e @/path/to/<hostname>.yml site.yml
 
 No role carries fallback values. The `preflight` role asserts every required
 variable and fails the run before anything is changed. `inventory-check.yml`
-runs the roster and placement subset of those assertions in CI, so a bad pull
-request fails there rather than on every box.
+runs the roster and placement subset of those assertions offline, against a
+deployment's inventory, so a bad roster fails there rather than on every box.
 
 ### Testing against a throwaway droplet
 

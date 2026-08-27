@@ -34,6 +34,38 @@ address says what it is without a lookup.
 Peers get `AllowedIPs` of the hub subnet only — never `0.0.0.0/0`. Nothing routes its default
 through the hub, so there is no NAT here and nothing depends on `iptable_nat`.
 
+## A peer that also runs another VPN
+
+Someone with a full-tunnel VPN — `AllowedIPs = 0.0.0.0/0`, typically for
+confidentiality on untrusted wifi — cannot run it and a peer from this hub at the
+same time in the desktop WireGuard app, which activates one tunnel at a time.
+That limit is the app's, not WireGuard's: `wireguard-tools` and `wg-quick` bring
+up as many interfaces as you ask for.
+
+The two then coexist without special handling. Peers here get the hub subnet
+only, so longest-prefix match sends that subnet down this tunnel and everything
+else down the full tunnel.
+
+Three things worth telling the person, because none is obvious:
+
+- **Check the ranges do not overlap** first — see Addressing above.
+- **This tunnel nests inside the full one.** `wg-quick` adds a direct route to a
+  peer's endpoint only for a tunnel that carries a default route, so a peer from
+  this hub has no such exclusion: its handshakes follow whatever owns the default
+  and travel inside the other tunnel. That works and stays encrypted, at the cost
+  of WireGuard's overhead twice.
+- **MTU does not adjust itself.** On macOS `set_mtu` reads the first `default`
+  route's interface MTU and subtracts 80. It never looks at the path to the hub,
+  so it computes the same number nested or not — and the config `wg-add-peer`
+  mints pins `MTU` explicitly anyway, which skips the calculation entirely.
+  Nested, set it by hand to the outer tunnel's MTU minus 80. Getting it wrong
+  gives a tunnel that handshakes, carries an interactive SSH session, and stalls
+  on large transfers.
+
+If the full tunnel drops, the peer keeps working over the bare network rather
+than failing. The traffic stays encrypted; what becomes visible to that network
+is this hub's address and the fact that someone is talking to it.
+
 ## Two things this host needed, which are not obvious
 
 - **`ufw` is active** with `INPUT` policy `DROP`. `51820/udp` must be opened

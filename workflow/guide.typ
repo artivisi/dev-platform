@@ -293,6 +293,18 @@ the same private network.
 On campus you can reach the box without this. Connect it anyway, so it is
 already working the first time you try from home.
 
+#note[
+  *Already using another VPN?* The desktop WireGuard app activates one tunnel at
+  a time, so switching this one on switches the other off. There is no setting
+  for it — the limit belongs to the app, not to WireGuard.
+
+  Both can run at once through WireGuard's command-line client instead, because
+  this tunnel claims only the box's private network and leaves the rest of your
+  traffic on your normal connection. Ask whoever runs the box before you set
+  that up: two VPNs whose address ranges overlap cannot both be active, and the
+  symptom is one of them quietly not working rather than an error.
+]
+
 === Step 4 — Create your key pair
 
 A *key pair* replaces a password. It is two files that belong together: one you

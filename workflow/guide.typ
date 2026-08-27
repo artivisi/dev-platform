@@ -1069,15 +1069,28 @@ when you approach it:
   Delete build output and caches first — they are rebuildable.
 
 #note[
-  *`DEV_PORT_BASE` is empty in a non-login shell.* It and `DOCKER_HOST` are set
-  by `/etc/profile.d/dev-platform.sh`, which only login shells read. An
-  interactive session has them; `ssh box 'docker compose up'` does not, and the
-  compose file then fails on `${DEV_PORT_BASE:?}` — correctly, but the message
-  points at compose rather than at the shell. Wrap non-interactive commands:
+  *A non-login shell has none of your environment.* `DEV_PORT_BASE`,
+  `DOCKER_HOST`, `PNPM_HOME` and the `PATH` entries that reach your runtimes are
+  all set by `/etc/profile.d/dev-platform.sh`, which only login shells read. An
+  interactive session has them; `ssh box 'docker compose up'` does not. Wrap
+  non-interactive commands:
 
   ```bash
   ssh box 'bash -lc "docker compose up"'
   ```
+
+  The two ways this shows up look nothing alike. A compose file fails on
+  `${DEV_PORT_BASE:?}` — correctly, but the message points at compose rather
+  than at the shell. A missing `PATH` gives `node: command not found`, which
+  reads as _the runtime was never installed_ when it is installed and merely
+  unreachable. Check in a login shell before concluding anything is missing:
+
+  ```bash
+  ssh box 'bash -lc "command -v node; node -v"'
+  ```
+
+  `pnpm env list` does not answer that question: with or without `--remote` it
+  prints the versions available to install, never the one you have.
 
   Rootless Docker still works either way: the setup writes a `rootless` docker
   context, which does not depend on the environment.

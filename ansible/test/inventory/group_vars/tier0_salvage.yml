@@ -1,29 +1,34 @@
 ---
-# Test overrides for the smallest droplet DigitalOcean offers.
+# Tier values for the droplet, as the harness's *inventory* sees them.
+#
+# Read this before changing anything here, because which file wins depends on
+# which playbook is running:
+#
+#   site.yml     lives beside ansible/group_vars/, so the PLATFORM's
+#                tier0_salvage.yml outranks this file and every key below is
+#                shadowed by it. Nothing here reaches the provisioning run.
+#   verify.yml   lives in ansible/test/, which has no adjacent group_vars, so
+#                this file is the only group_vars it sees. Deleting a key here
+#                fails verify.yml with 'is undefined'.
+#
+# So this file exists for verify.yml. The values that must actually take effect
+# during provisioning — the lowered memory floor and ceilings, and WireGuard off
+# — are in test/host.yml, which run.sh passes with -e to both playbooks and
+# which outranks every group_vars file in both directions. Keep the two in step.
 #
 # This is a MECHANISM test, not a capacity test. A 2 GB droplet cannot host a
-# seat and is not a tier-0 box in any meaningful sense — the memory floor and
-# the per-user ceilings below are lowered purely so the playbook will run on it
-# and so the slice limits can be observed taking effect. Never copy these values
+# seat and is not a tier-0 box in any meaningful sense. Never copy these values
 # to a real box.
 
 dev_tier: "tier0-salvage (test harness)"
 dev_tier_min_ram_mb: 900
 
-# Low enough that enforcement is observable, high enough that provisioning can
-# finish. 300M/400M was tried and deadlocks the run: pnpm's Node install peaks
-# around 254 MB RSS, crosses MemoryHigh, and the kernel throttles it into a
-# permanent crawl — `cat /proc/<pid>/wchan` reads
-# __mem_cgroup_handle_over_high. The ceiling has to clear the largest single
-# tool's working set, not just the steady-state workload.
 dev_user_memory_high: "1G"
 dev_user_memory_max: "1400M"
 dev_user_cpu_weight: 100
 dev_user_io_weight: 100
 dev_user_tasks_max: 2048
 
-# The droplet has a single ext4 root filesystem; the base role enables usrquota
-# on it, which is the same path a real box with /home on / takes.
 dev_quota_enabled: true
 dev_user_quota_soft: "2G"
 dev_user_quota_hard: "3G"
@@ -33,6 +38,4 @@ dev_registry_mirror_enabled: true
 # No hub peer for a throwaway droplet.
 dev_wireguard_enabled: false
 
-# dev_ntfy_url and dev_e2e_projects come from /etc/dev-platform/host.yml,
-# written by run.sh — same path as a real box.
 dev_e2e_enabled: true

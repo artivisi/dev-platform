@@ -10,3 +10,32 @@ dev_e2e_projects:
 dev_lid_ignore: true
 dev_kernel_module_blacklist: [pcspkr]
 dev_docker_data_root: /srv/docker
+
+# --- Tier overrides for the droplet -------------------------------------------
+# These belong to the harness, not to any real box, and they are HERE rather
+# than in test/inventory/group_vars/tier0_salvage.yml because that file cannot
+# win. Ansible ranks playbook-adjacent group_vars above inventory group_vars, so
+# every key the platform's own group_vars/tier0_salvage.yml defines beats the
+# inventory copy — which is all of them. Passed with -e, these outrank both.
+#
+# This is a MECHANISM test, not a capacity test. A 2 GB droplet cannot host a
+# seat and is not a tier-0 box in any meaningful sense: the floor and the
+# ceilings below are lowered purely so the playbook will run on it and so the
+# slice limits can be observed taking effect. Never copy these to a real box.
+dev_tier: "tier0-salvage (test harness)"
+dev_tier_min_ram_mb: 900
+
+# Low enough that enforcement is observable, high enough that provisioning can
+# finish. 300M/400M was tried and deadlocks the run: pnpm's Node install peaks
+# around 254 MB RSS, crosses MemoryHigh, and the kernel throttles it into a
+# permanent crawl — `cat /proc/<pid>/wchan` reads
+# __mem_cgroup_handle_over_high. The ceiling has to clear the largest single
+# tool's working set, not just the steady-state workload.
+dev_user_memory_high: "1G"
+dev_user_memory_max: "1400M"
+dev_user_tasks_max: 2048
+dev_user_quota_soft: "2G"
+dev_user_quota_hard: "3G"
+
+# No hub peer for a throwaway droplet.
+dev_wireguard_enabled: false

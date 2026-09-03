@@ -4,6 +4,12 @@
 
 dev_timezone: "Asia/Jakarta"
 
+# The droplet already points at DigitalOcean's own mirror, so this asserts the
+# archive is what it should be rather than rewriting it. The rewrite path — an
+# installer-written archive.ubuntu.com URI replaced by a configured mirror —
+# is not reachable here, because no DigitalOcean image ships one.
+dev_apt_mirror: "http://mirrors.digitalocean.com/ubuntu/"
+
 dev_port_block_base: 20000
 dev_port_block_size: 100
 
@@ -32,6 +38,10 @@ dev_repo_url: "/srv/dev-platform-src"
 dev_repo_branch: "main"
 dev_repo_deploy_key: "/etc/dev-platform/deploy_key"
 dev_pull_inventory: "ansible/test/inventory/test.ini"
+# Relative to the checkout. The harness clones the platform repository itself
+# rather than a deployment, so the playbook is under ansible/ instead of being
+# the one-line site.yml at a deployment's root.
+dev_pull_playbook: "ansible/site.yml"
 dev_pull_host_vars_file: "/etc/dev-platform/host.yml"
 dev_pull_checkout_dir: "/var/lib/dev-platform/repo"
 # Daily, so the timer cannot fire mid-test and re-apply the initial placement

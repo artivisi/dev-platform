@@ -8,6 +8,14 @@
   become: true
   gather_facts: true
 
+  # This playbook sits in ansible/test/, not beside site.yml, so Ansible loads
+  # no adjacent group_vars for it: the platform constants the provisioning run
+  # used are invisible here. Load them explicitly rather than restating their
+  # values below — a constant that changes would otherwise leave this file
+  # asserting the old one, and passing.
+  vars_files:
+    - ../group_vars/all.yml
+
   tasks:
 
     - name: Read the passwd database

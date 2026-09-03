@@ -121,6 +121,81 @@
       when: dev_netplan_opt.changed
       changed_when: true
 
+# A PCIe port whose link is degrading reports a correctable error for every
+# retry, and the AER handler logs every one of them. Measured on a chipset port
+# with a failing x1 link: ninety errors a second, thirty million since the last
+# boot, a journal that reached 3.5 GB in four days. Correctable means the link
+# recovers each time and nothing is lost — so the errors are not the fault, the
+# volume is: it costs an interrupt each, and it buries every other line in the
+# log, which is where the actual cause of an outage has to be read from.
+#
+# Only ports whose device is not in use belong here. Quietening a port that
+# carries something is hiding a fault, not fixing one, and the box's entry in
+# the hardware specification is the place to say which is which.
+- name: Ports told to stop reporting correctable errors
+  when: dev_pcie_aer_quiet is defined
+  block:
+
+    - name: The quiet list is a list of PCI addresses
+      ansible.builtin.assert:
+        that:
+          - dev_pcie_aer_quiet is sequence
+          - dev_pcie_aer_quiet is not string
+          - dev_pcie_aer_quiet | select('match', '^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$') | length
+            == dev_pcie_aer_quiet | length
+        fail_msg: >-
+          dev_pcie_aer_quiet must be a list of full PCI addresses in
+          domain:bus:device.function form, e.g. "0000:02:06.0". lspci -D prints
+          them in exactly that shape.
+        quiet: true
+
+    # setpci and lspci come from pciutils, which the base package list installs.
+    - name: Install the port quietening script
+      ansible.builtin.template:
+        src: dev-platform-pcie-quiet.sh.j2
+        dest: /usr/local/sbin/dev-platform-pcie-quiet
+        mode: "0755"
+      register: dev_pcie_script
+
+    - name: Install the port quietening service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/dev-platform-pcie-quiet.service
+        mode: "0644"
+        content: |
+          # Managed by Ansible — development-environment (see the Setup Guide).
+          [Unit]
+          Description=Stop unused PCIe ports reporting correctable errors
+          After=sysinit.target
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/usr/local/sbin/dev-platform-pcie-quiet
+
+          [Install]
+          WantedBy=multi-user.target
+      register: dev_pcie_unit
+      notify: Reload systemd
+
+    - name: Apply the unit before enabling it
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable the port quietening service
+      ansible.builtin.systemd_service:
+        name: dev-platform-pcie-quiet
+        enabled: true
+        state: started
+
+    # The register is cleared at power-on and the unit has already run for this
+    # boot, so a changed script would otherwise not take effect until the next
+    # restart — on a box being quietened because it keeps restarting, that is
+    # the wrong way round.
+    - name: Re-apply now if the script changed
+      ansible.builtin.systemd_service:
+        name: dev-platform-pcie-quiet
+        state: restarted
+      when: dev_pcie_script.changed or dev_pcie_unit.changed
+
 # Ubuntu reserves memory for a crash-dump kernel at boot — 512 MB in the
 # 4-32 GB band, taken before the OS sees it. On a box that is reprovisioned from
 # this repository rather than debugged from a crash dump, that is capacity spent

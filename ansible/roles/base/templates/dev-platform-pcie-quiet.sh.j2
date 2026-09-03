@@ -1,0 +1,26 @@
+#!/bin/sh
+# Managed by Ansible — development-environment (see the Setup Guide).
+#
+# Stops a named PCIe port reporting correctable errors.
+#
+# Bit 0 of the PCI Express Device Control register is Correctable Error
+# Reporting Enable. Clearing it stops the port sending ERR_COR upstream, so the
+# AER handler stops being entered and stops logging. Only bit 0 is cleared:
+# non-fatal and fatal reporting stay on, because a port that has been quietened
+# must still be able to say something has gone seriously wrong.
+#
+# The register is reset at power-on, so this runs at every boot, not once.
+set -eu
+
+for addr in {{ dev_pcie_aer_quiet | join(' ') }}; do
+    if [ ! -e "/sys/bus/pci/devices/$addr" ]; then
+        echo "dev_pcie_aer_quiet names $addr, which is not a PCI device on this box" >&2
+        exit 1
+    fi
+    cur=$(setpci -s "$addr" CAP_EXP+08.w)
+    new=$(printf '%04x' "$(( 0x$cur & 0xfffe ))")
+    if [ "$new" != "$cur" ]; then
+        setpci -s "$addr" CAP_EXP+08.w="$new"
+        echo "$addr: correctable error reporting off (DevCtl 0x$cur -> 0x$new)"
+    fi
+done

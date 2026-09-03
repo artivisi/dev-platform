@@ -1,0 +1,50 @@
+#!/bin/sh
+# Managed by Ansible — development-environment (see the Setup Guide).
+#
+# Reports a restart that was not a clean shutdown.
+#
+# The marker file is created here at every boot and removed by the unit's
+# ExecStop at shutdown. So a marker that is still present when this runs means
+# the previous boot never reached shutdown: the box reset under itself, and
+# every session, container and agent run on it died without notice. That is the
+# event nobody finds out about on their own — the box is back up and reachable,
+# and the only visible trace is work that is no longer there.
+set -eu
+
+marker={{ dev_restart_marker }}
+
+if [ -e "$marker" ]; then
+    unclean=yes
+else
+    unclean=no
+fi
+
+# Written before the page, not after: a page that cannot be delivered must fail
+# this unit loudly and leave it failed, not re-report the same reset at every
+# boot from here on.
+mkdir -p "$(dirname "$marker")"
+: > "$marker"
+
+[ "$unclean" = yes ] || exit 0
+
+# Firmware records why the last reset happened, and on AMD a data fabric sync
+# flood names itself here. Hardware that records nothing gets reported as
+# recording nothing — a reset with no stated cause is a finding, not a blank to
+# be filled in with a guess.
+reason=$(journalctl -k -b 0 --no-pager | grep -m1 'Previous system reset reason' || true)
+mce=$(journalctl -k -b 0 --no-pager | grep -m3 'Hardware Error' || true)
+
+if [ -z "$reason" ]; then
+    reason='firmware recorded no reset reason'
+fi
+if [ -z "$mce" ]; then
+    mce='no machine check recorded'
+fi
+
+printf 'UNCLEAN RESTART on %s\n\nEverything running on this box was lost.\n\n%s\n\n%s\n' \
+    "$(uname -n)" "$reason" "$mce" \
+  | curl -fsS --retry 10 --retry-all-errors --retry-delay 15 \
+      -H 'Title: Unclean restart' \
+      -H 'Priority: high' \
+      -H 'Tags: rotating_light' \
+      --data-binary @- '{{ dev_ntfy_url }}'

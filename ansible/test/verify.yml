@@ -318,3 +318,53 @@
         that: "'passwordauthentication no' in v_sshd.stdout | lower"
         fail_msg: "sshd still accepts password authentication."
         success_msg: "sshd is key-only."
+
+    # --- Unclean-restart reporting -----------------------------------------
+    # The reporter is armed by the marker existing: no marker means the next
+    # restart, clean or not, is reported as clean. That is the failure mode
+    # worth a check, because it looks identical to a working reporter until the
+    # box actually crashes.
+
+    - name: The restart reporter is active
+      ansible.builtin.command: systemctl is-active dev-platform-restart-report
+      register: v_restart_unit
+      changed_when: false
+      failed_when: false
+
+    - name: Assert the restart reporter is active
+      ansible.builtin.assert:
+        that: "v_restart_unit.stdout | trim == 'active'"
+        fail_msg: >-
+          dev-platform-restart-report is '{{ v_restart_unit.stdout | trim }}'.
+          Type=oneshot with RemainAfterExit reads 'active' once it has run; any
+          other value means the reset marker is not being maintained and an
+          unclean restart will pass unreported.
+        success_msg: "Restart reporter is active."
+
+    - name: The reset marker exists
+      ansible.builtin.stat:
+        path: "{{ dev_restart_marker }}"
+      register: v_restart_marker
+
+    - name: Assert the reset marker exists
+      ansible.builtin.assert:
+        that: v_restart_marker.stat.exists
+        fail_msg: >-
+          {{ dev_restart_marker }} is missing while the box is up. The marker is
+          how the next boot tells a crash from a shutdown; without it every
+          restart looks clean.
+        success_msg: "Reset marker is present."
+
+    - name: The journal is capped
+      ansible.builtin.command: journalctl --disk-usage
+      register: v_journal
+      changed_when: false
+
+    - name: Assert the journal is at or under the cap
+      ansible.builtin.assert:
+        that: "v_journal.stdout is search('take up [0-9.]+[KM] ')"
+        fail_msg: >-
+          {{ v_journal.stdout | trim }} — over dev_journal_max_use
+          ({{ dev_journal_max_use }}). A freshly provisioned box logs megabytes;
+          gigabytes here means the cap is not being applied.
+        success_msg: "Journal is within the cap."

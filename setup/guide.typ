@@ -432,15 +432,54 @@ That is the role working.
 == base
 
 *What.* The apt archive mirror; timezone; the base packages (`git`, `tmux`, `btop`, `jq`, `ripgrep`,
-`smartmontools`, `acl`, and the rootless-Docker prerequisites `uidmap`,
+`smartmontools`, `pciutils`, `acl`, and the rootless-Docker prerequisites `uidmap`,
 `dbus-user-session`, `slirp4netns`, `fuse-overlayfs`); `multi-user.target`
 so the box never boots a desktop; cgroup controller delegation to
-`user@.service`; the hardware-conditional settings — including
+`user@.service`; a ceiling on the journal; the unclean-restart reporter; the
+hardware-conditional settings — including
 `dev_network_optional_interfaces`, which stops boot waiting two minutes for an
-ethernet port with no cable in it, and `dev_kdump_enabled: false`, which returns
-the crash-dump kernel's memory at the next reboot; and quota accounting on
-the filesystem holding `/home` (`usrquota` in `fstab`, remount,
+ethernet port with no cable in it, `dev_pcie_aer_quiet`, which stops a failing
+PCIe port on an unused device flooding the log, and `dev_kdump_enabled: false`,
+which returns the crash-dump kernel's memory at the next reboot; and quota
+accounting on the filesystem holding `/home` (`usrquota` in `fstab`, remount,
 `quotacheck`, `quotaon`).
+
+*Why the restart reporter.* A box that resets under itself is, thirty seconds
+later, indistinguishable from one that never did. It is up, it is reachable, its
+lingering accounts have brought their rootless daemons and containers back by
+themselves. What has not come back is every terminal session and every agent run
+that was going when it happened, and nothing says so. Left to be noticed
+unaided, the detection mechanism is a person logging in days later and finding
+their work missing — by which time the machine has done it several more times
+and the journal has rotated past the evidence.
+
+The mechanism is one marker file. `ExecStart` creates it at boot; `ExecStop`
+removes it on the way down. A marker still present when the unit next starts
+therefore means the previous boot never reached shutdown, and the box pages
+`dev_ntfy_url` with the firmware's own account of why — on AMD, the reset reason
+register names a data fabric sync flood explicitly — plus any machine check the
+kernel recovered from the previous boot. The marker is written before the page,
+not after, so a page that cannot be delivered leaves a failed unit to be found
+rather than re-reporting the same reset at every boot from then on.
+
+This is why `dev_ntfy_url` is required on every box and not only on boxes
+running loops or self-provisioning.
+
+*Why quieten a PCIe port.* A port whose link is degrading reports a correctable
+error on every retry, and AER logs each one. Correctable means the link recovered
+and no data was lost, so the errors themselves are not the fault — the volume is.
+Measured on a chipset port with a failing x1 link: ninety errors a second, thirty
+million since the last boot, a 3.5 GB journal in four days, and every other line
+in the log buried under them at exactly the moment somebody needs to read why the
+box went down. `dev_pcie_aer_quiet` clears bit 0 of the port's PCI Express Device
+Control register, which stops it sending `ERR_COR` upstream. Only bit 0: fatal
+and non-fatal reporting stay on, because a quietened port must still be able to
+say something has actually gone wrong.
+
+  Only ports whose device is not in use belong in that list. Check what is
+  behind the address with `lspci -t` before adding it — quietening a port that
+  carries something is hiding a fault, not fixing one. The register is cleared at
+  power-on, so a unit re-applies it at every boot.
 
 *Why delegation.* On cgroup v2 the per-user memory ceilings the `users` role
 writes are accepted by systemd and then *silently ignored* unless the
@@ -473,7 +512,15 @@ cat /sys/fs/cgroup/user.slice/user-$(id -u alice).slice/user@$(id -u alice).serv
 # must list at least: cpu memory pids
 quotaon -up /            # "user quota on / is on"  (or the /home mount)
 grep URIs /etc/apt/sources.list.d/ubuntu.sources   # archive line == dev_apt_mirror
+journalctl --disk-usage                            # at or under dev_journal_max_use
+systemctl is-active dev-platform-restart-report    # active (RemainAfterExit)
+ls -l /var/lib/dev-platform/running                # exists while the box is up
 ```
+
+The reporter is verified by exercising it, not by reading it: remove the marker
+by hand and restart the unit, and nothing should be sent; create the marker by
+hand and restart the unit, and a page should arrive. Do the second one on a box
+nobody is relying on, and tell whoever watches the topic first.
 
 == ssh_hardening
 
@@ -872,6 +919,7 @@ ansible-playbook -i inventory/hosts.ini -e @/tmp/box-01.yml site.yml \
   [A step hangs with no output — a build, an install, an agent], [`MemoryHigh` throttling: the process crossed the ceiling and is in continuous reclaim, never erroring. `cat /proc/<pid>/wchan` reads `__mem_cgroup_handle_over_high`. The ceiling must clear the largest single tool's working set, not the steady state.],
   [A build dies with no stack trace; a test suite reports failure with no cause], [OOM kill at `MemoryMax`. `journalctl -k --since "10 min ago" | grep -i "killed process"`; `systemctl --user status docker` as the user for container deaths. Brief every user on this — a limit people can read is a capacity signal, one they cannot is a flaky test.],
   [Overnight work "vanished"; tmux looks alive but containers are gone], [Lingering is off for the account: `loginctl show-user <name> -p Linger`. The `users` role verifies it; if it drifted, a pull run restores it.],
+  [Everything is gone — tmux sessions included — and the box looks healthy], [The box reset under itself. `uptime` against when the work was started, then `journalctl --list-boots`: boots that end mid-sentence with no shutdown sequence are crashes, not restarts. `journalctl -b 0 -k | grep -i "reset reason\|Hardware Error"` gives the firmware's account. Nothing in software survives this and nothing in software can be configured to; the reporter exists so it is known within a minute instead of at the next login.],
   [Memory limit written but `memory.max` reads `max`], [Controllers not delegated — `base` writes the drop-in; a reboot may be needed for `user@.service` to pick it up.],
   [Registry mirror crash-loops with clean startup logs], [DNS from the container — the unit already uses host networking; check the host resolver.],
   [Box unreachable over VPN after a quiet period], [Missing `PersistentKeepalive` in the client config; `wg show` on the hub shows an old handshake.],

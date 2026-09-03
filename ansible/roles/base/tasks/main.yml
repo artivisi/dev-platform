@@ -58,6 +58,9 @@
       - ripgrep
       - curl
       - ca-certificates
+      # lspci to find what a failing PCIe port is attached to, setpci to stop it
+      # reporting. The hardware-conditional dev_pcie_aer_quiet needs setpci.
+      - pciutils
       # acl lets Ansible hand temp files to an unprivileged become_user without
       # making them world-readable. Rootless Docker setup runs as each developer,
       # so without this every such task either fails or leaks.
@@ -95,6 +98,91 @@
       [Service]
       Delegate=cpu cpuset io memory pids
   notify: Reload systemd
+
+# --- The journal --------------------------------------------------------------
+# Uncapped, the journal grows to a tenth of the filesystem. That ceiling is not
+# reached by a box being used; it is reached by a box that is broken and saying
+# so at rate, which is precisely when the older entries being rotated away are
+# the ones somebody needs.
+- name: Ensure the journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: "0755"
+
+- name: Cap the journal
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/dev-platform.conf
+    mode: "0644"
+    content: |
+      # Managed by Ansible — development-environment (see the Setup Guide).
+      [Journal]
+      SystemMaxUse={{ dev_journal_max_use }}
+  notify: Restart journald
+
+# journald enforces the ceiling when it next rotates, which on a quiet box is
+# not soon — a journal already over the cap when the cap is set stays over it.
+# Vacuuming is its own idempotence check: it reports what it freed per journal
+# directory, and "freed 0B" everywhere means there was nothing to remove. Match
+# on a non-zero amount rather than on the absence of 0B, because a box with both
+# a runtime and a persistent journal gets one line for each and only one of them
+# need be non-zero.
+- name: Bring an oversized journal down to the cap
+  ansible.builtin.command: "journalctl --vacuum-size={{ dev_journal_max_use }}"
+  register: dev_journal_vacuum
+  changed_when: (dev_journal_vacuum.stderr ~ dev_journal_vacuum.stdout) is search('freed [1-9]')
+
+# --- Unclean restarts ----------------------------------------------------------
+# A box that resets under itself comes back up, reconnects, and looks entirely
+# healthy. Lingering brings the rootless daemons and their containers back; what
+# does not come back is every terminal session and every agent run that was
+# going, and nothing anywhere says so. The first person to notice is whoever
+# next logs in and finds days of work missing, which is far too late to be the
+# detection mechanism.
+- name: Install the restart reporter
+  ansible.builtin.template:
+    src: dev-platform-restart-report.sh.j2
+    dest: /usr/local/sbin/dev-platform-restart-report
+    mode: "0755"
+
+- name: Install the restart reporter service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/dev-platform-restart-report.service
+    mode: "0644"
+    content: |
+      # Managed by Ansible — development-environment (see the Setup Guide).
+      #
+      # ExecStop is the whole mechanism: it removes the marker on the way down,
+      # so the marker surviving to the next boot is the definition of "this box
+      # did not shut down". Wanted by multi-user.target and ordered after the
+      # network so the page has somewhere to go.
+      [Unit]
+      Description=Report a restart that was not a clean shutdown
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/sbin/dev-platform-restart-report
+      ExecStop=/bin/rm -f {{ dev_restart_marker }}
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: Reload systemd
+
+- name: Apply unit changes before enabling the reporter
+  ansible.builtin.meta: flush_handlers
+
+# Not restarted when the script changes: restarting it runs ExecStop, which
+# removes the marker, which is exactly the state that means "clean shutdown".
+# A changed reporter takes effect at the next boot, which is the only boot it
+# has anything to say about.
+- name: Enable the restart reporter
+  ansible.builtin.systemd_service:
+    name: dev-platform-restart-report
+    enabled: true
+    state: started
 
 - name: Apply hardware-conditional settings
   ansible.builtin.include_tasks: hardware.yml

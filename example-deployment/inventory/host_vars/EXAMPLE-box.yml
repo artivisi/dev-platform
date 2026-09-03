@@ -30,3 +30,7 @@ dev_pull_enabled: true
 # dev_kdump_enabled: false              # give back the crashkernel reservation
 # dev_network_optional_interfaces:      # ethernet ports with no cable in them,
 #   - enp8s0                            # or boot waits 120s for each of them
+# dev_pcie_aer_quiet:                   # PCIe ports of UNUSED devices whose link
+#   - "0000:02:06.0"                    # is failing and logging every retry.
+#                                       # lspci -D gives the address; check what
+#                                       # is behind it with lspci -t first.

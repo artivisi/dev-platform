@@ -26,3 +26,18 @@ dev_pull_checkout_dir: "/var/lib/dev-platform/repo"
 # by the developer. pnpm is the one binary the playbook downloads itself, so it
 # is pinned here — explicitly, and bumped deliberately.
 dev_pnpm_version: "11.21.0"
+
+# --- Restart reporting --------------------------------------------------------
+# The marker exists for as long as the box is up and is removed at clean
+# shutdown, so finding it at boot means the previous boot never reached
+# shutdown. Under /var/lib rather than /run: it has to survive the reset it
+# exists to detect.
+dev_restart_marker: "/var/lib/dev-platform/running"
+
+# --- Logging ------------------------------------------------------------------
+# The journal is persistent and, out of the box, capped only at 10% of the
+# filesystem. A box with a failing PCIe link logs a correctable error about
+# ninety times a second, so that ceiling is reached by the fault rather than by
+# use, and the evidence of what went wrong rotates away under the noise of it
+# still going wrong. 1 GB is months of a healthy box.
+dev_journal_max_use: "1G"

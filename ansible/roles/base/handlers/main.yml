@@ -9,3 +9,10 @@
   ansible.builtin.systemd_service:
     name: systemd-logind
     state: restarted
+
+# Restarting journald does not lose entries: writers hold the socket, and the
+# new process picks up the same journal files.
+- name: Restart journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted

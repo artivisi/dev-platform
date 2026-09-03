@@ -114,17 +114,19 @@
     quiet: true
   when: dev_wireguard_enabled | bool
 
-- name: Notification endpoint is present when anything can page
+- name: Notification endpoint is present
   ansible.builtin.assert:
     that:
       - dev_ntfy_url is defined
       - dev_ntfy_url | length > 0
     fail_msg: >-
-      dev_ntfy_url is missing but standing loops or self-provisioning are
-      enabled. A loop or a provisioning run that fails with nobody told is the
+      dev_ntfy_url is missing. Every box reports an unclean restart to it, and
+      a box that resets under itself is indistinguishable from a healthy one
+      afterwards — it is back up, it is reachable, and the only trace is the
+      work that was running on it and is now gone. Standing loops and
+      self-provisioning page here too: a run that fails with nobody told is the
       one thing they must never do. Supply it in /etc/dev-platform/host.yml.
     quiet: true
-  when: (dev_e2e_enabled | bool) or (dev_pull_enabled | bool)
 
 - name: Standing-loop project list is present when loops are enabled
   ansible.builtin.assert:

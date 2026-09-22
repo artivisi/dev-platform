@@ -65,12 +65,12 @@
 #let ram-tiers() = table(
   columns: (auto, auto, auto, auto, 1.5fr),
   align: (right, right, center, center, left),
-  table.header([RAM], [Usable], [Seats], [Full stacks], [What this tier is for]),
+  table.header([RAM], [Usable], [Seats], [Full-stack seats], [What this tier is for]),
   [8 GB],   [7,1 GB],   [1 sequenced], [0], [Standing E2E loop runner. One seat only if it never builds and runs at once. Not multiuser.],
-  [16 GB],  [14,9 GB],  [1 comfortable \ 2–3 light], [1], [One seat on the sizing profile above. Two or three seats only where the work is lighter than that profile — site maintenance, docs, interpreted runtimes.],
-  [32 GB],  [30,5 GB],  [2–3], [2], [The entry tier for real multiuser work.],
-  [64 GB],  [61,9 GB],  [5–7], [4–5], [Team box or heavy single-user stacks.],
-  [128 GB], [125,7 GB], [12+ \ (CPU-capped first)], [6–8], [Primary workstation. RAM stops being the binding constraint.],
+  [16 GB],  [14,9 GB],  [1 comfortable \ 2–3 light], [0], [One seat on the sizing profile above. Two or three seats only where the work is lighter than that profile — site maintenance, docs, interpreted runtimes.],
+  [32 GB],  [30,5 GB],  [2–3], [1–2], [The entry tier for real multiuser work.],
+  [64 GB],  [61,9 GB],  [5–7], [3–4], [Team box or heavy single-user stacks.],
+  [128 GB], [125,7 GB], [12+ \ (CPU-capped first)], [7–8], [Primary workstation. RAM stops being the binding constraint.],
 )
 
 // ---------------------------------------------------------------------------
@@ -85,6 +85,7 @@
   [Quad mobile (Haswell-H)], [4c/8t], [1–2], [Thermally limited before it is core-limited.],
   [Quad desktop, no HT (Haswell)], [4c/4t], [2], [Higher sustained clock than its mobile counterpart.],
   [Quad desktop, HT (Haswell)], [4c/8t], [2–3], [],
+  [8-core desktop (Zen 5)], [8c/16t], [4], [],
   [16-core desktop (Zen 5)], [16c/32t], [6–8], [Homogeneous cores — no scheduling jitter.],
 )
 

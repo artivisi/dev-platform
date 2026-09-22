@@ -37,7 +37,7 @@ deployment has adopted — one organisation can lag another safely.
 Three documents, one per audience, split at two hand-off points — **the OS
 boots** and **the developer logs in**:
 
-- `hardware/spec.typ` — capacity model and build tiers 0–3, plus per-class
+- `hardware/spec.typ` — capacity model and build tiers 0–4, plus per-class
   commissioning runbooks that end when the OS boots. Anything after first boot
   is not hardware: hardware-conditional software settings are declared in the
   box's `host_vars` (`dev_lid_ignore`, `dev_mbpfan`,

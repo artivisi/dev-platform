@@ -7,13 +7,13 @@
   subtitle: "Capacity model & build tiers — salvage to primary",
   client: "Infrastructure Team",
   client-detail: "Procurement, assembly & triage",
-  date: "17 August 2026",
+  date: "22 September 2026",
   badge: "TECHNICAL SPECIFICATION",
   prepared-for-label: "PREPARED FOR",
   lang: "en",
   metadata: (
-    ("Tier", "0 salvage · 1 upgraded · 2 mid · 3 primary"),
-    ("Cost range", "0 – 34.8 million IDR per box"),
+    ("Tier", "0 salvage · 1 compact · 2 upgraded · 3 mid · 4 primary"),
+    ("Cost range", "0 – 56.4 million IDR per box"),
     ("Capacity unit", "Seat & stack"),
     ("Companion documents", "Setup Guide · Developer Guide"),
   ),
@@ -133,8 +133,8 @@ call it one seat plus a standing loop. Adding RAM to that machine buys nothing.
   [Salvaged laptop — 2c/4t, 8 GB, SATA SSD], [1 seq.], [1,5], [3], [*1 sequenced*], [RAM and CPU together],
   [Salvaged desktop — 4c/4t, 8 GB, SATA SSD], [1 seq.], [3], [3], [*1 sequenced*], [RAM],
   [Same desktop upgraded to 32 GB], [2–3], [3], [3], [*2–3*], [None — balanced],
-  [Mid build — 8c/16t, 64 GB, NVMe], [5–7], [6], [6], [*5–6*], [CPU],
-  [Primary — 16c/32t, 128 GB, 2×NVMe Gen4], [12+], [9–12], [12+], [*6–8 full stacks*], [Stack size, not seats],
+  [Mid build — 8c/16t, 64 GB, NVMe], [5–7], [6], [9], [*5–6*], [CPU],
+  [Primary — 16c/32t, 128 GB, 2×NVMe Gen4], [7–8 full], [9–12], [12+], [*6 full stacks*], [Stack size; the 20G ceilings stop at six],
 )
 
 The third row is the point of this whole model: the upgrade that moves a
@@ -466,12 +466,12 @@ spot-check before ordering.
   [CPU], [AMD Ryzen 7 9700X (8c/16t, iGPU)], [5.500.000],
   [Cooler], [Thermalright Peerless Assassin 120 SE], [700.000],
   [Motherboard], [B650, 2.5GbE (MSI MAG / ASUS TUF class)], [2.500.000],
-  [RAM], [64 GB DDR5-5600 (2×32 GB)], [3.500.000],
+  [RAM], [64 GB DDR5-5600 (2×32 GB)], [8.000.000 – 12.000.000],
   [Storage], [1 TB NVMe Gen4], [1.300.000],
   [PSU], [650 W 80+ Gold], [1.200.000],
   [Case], [Mid-tower, sound-dampened, 2×140 mm], [1.500.000],
   table.cell(fill: rgb("#eef0f9"))[*Total*], table.cell(fill: rgb("#eef0f9"))[],
-  table.cell(fill: rgb("#eef0f9"))[*≈ 16.200.000*],
+  table.cell(fill: rgb("#eef0f9"))[*≈ 20.700.000 – 24.700.000*],
 )
 
 #capacity-card(
@@ -480,10 +480,14 @@ spot-check before ordering.
   ram: [64 GB DDR5],
   disk: [1 TB NVMe Gen4],
   seats: [5–6],
-  stacks: [4–5 full],
-  builds: [6],
+  stacks: [5–6 light],
+  builds: [4],
   binding: [CPU],
 )
+
+The 10G ceilings hold a seat and a light stack, not a full one: rootless
+containers run in their owner's user slice, so a 10–12 GB stack counts against
+the same 10G as the seat. Full stacks are Tier 4's job.
 
 Two DIMM slots left free take this to 128 GB later, at which point it becomes a
 Tier 4 box in all but core count. That upgrade path is the reason for 2×32 GB
@@ -492,8 +496,8 @@ rather than 4×16 GB.
 = Tier 4 — Primary workstation
 
 The tier at which *stack size* stops being a constraint: several full stacks
-at once — multi-broker Kafka, Oracle, monitoring, 10–12 GB each — with seats to
-spare. The workflow is the one every tier runs; what this box adds is that no
+at once — multi-broker Kafka, Oracle, monitoring, 10–12 GB each — one per
+seat. The workflow is the one every tier runs; what this box adds is that no
 project has to trim its stack to fit. Performance testing stays on rented
 cloud VMs; this box, like every other tier, is for functional correctness only.
 
@@ -504,14 +508,14 @@ cloud VMs; this box, like every other tier, is for functional correctness only.
   [CPU], [AMD Ryzen 9 9950X (16c/32t, iGPU — no discrete GPU)], [10.000.000],
   [Cooler], [Thermalright Peerless Assassin 120 SE], [700.000],
   [Motherboard], [MSI MAG B650 Tomahawk WiFi or ASUS TUF B650-Plus (2.5GbE, solid VRM)], [4.000.000],
-  [RAM], [128 GB DDR5-5600 (4×32 GB, e.g. Kingston Fury Beast)], [7.000.000],
-  [Storage 1], [2 TB NVMe Gen4 (WD SN850X / Kingston KC3000) — OS + repos], [2.500.000],
-  [Storage 2], [2 TB NVMe Gen4 (same class) — Docker images/volumes + scratch], [2.500.000],
+  [RAM], [128 GB DDR5-5600 (4×32 GB, e.g. Kingston Fury Beast)], [16.000.000 – 24.000.000],
+  [Storage 1], [2 TB NVMe Gen4 (WD SN850X / Kingston KC3000) — OS + repos], [4.800.000],
+  [Storage 2], [2 TB NVMe Gen4 (same class) — Docker images/volumes + scratch], [4.800.000],
   [PSU], [850 W 80+ Gold, semi-passive zero-RPM (Corsair RM850e / be quiet! Pure Power 12 M)], [2.000.000],
   [Case], [Fractal Define 7 (sound-dampened, 3×140 mm fans included, external front filter)], [3.800.000],
   [UPS], [1200 VA line-interactive with AVR (APC BX1200MI class)], [2.300.000],
   table.cell(fill: rgb("#eef0f9"))[*Total*], table.cell(fill: rgb("#eef0f9"))[],
-  table.cell(fill: rgb("#eef0f9"))[*≈ 34.800.000*],
+  table.cell(fill: rgb("#eef0f9"))[*≈ 48.400.000 – 56.400.000*],
 )
 
 #capacity-card(
@@ -519,14 +523,21 @@ cloud VMs; this box, like every other tier, is for functional correctness only.
   threads: [16c/32t, homogeneous],
   ram: [128 GB DDR5],
   disk: [2 × 2 TB NVMe Gen4, split OS/Docker],
-  seats: [12+ (CPU-capped first)],
-  stacks: [6–8 full],
-  builds: [9–12],
+  seats: [6 full-stack],
+  stacks: [6 full],
+  builds: [6–8],
   binding: [Stack size, not seats],
 )
 
-Remaining from a 50M envelope: ≈15M buffer. Upgrade paths if needed later: a
-third 2 TB NVMe when Docker volumes sprawl, UPS battery replacement at year two.
+Six is where the 20G ceilings stop summing to physical memory: 6 × 20 GB =
+120 GB of 125,7 GB usable. On light work the CPU would carry 9–12 seats, but
+only under Tier 3's 10G ceilings, which no full stack fits under — and a box has
+one ceiling for every seat. More light seats are cheaper as two Tier 3 boxes,
+which also keep working when one fails.
+
+Against a 50M envelope: ≈1,6M left at the bottom of the RAM price range, ≈6,4M
+over at the top. Upgrade paths if needed later: a third 2 TB NVMe when Docker
+volumes sprawl, UPS battery replacement at year two.
 
 #note[
   *Deliberate omissions.* No discrete GPU — the iGPU covers the rare BIOS or
@@ -666,8 +677,8 @@ will not warn you about.
   [0], [Salvage, as found], [0], [1 seq.], [0],
   [1], [16 GB desktop, as found], [0], [2–3 light], [0],
   [2], [Salvage + 32 GB DDR3], [±600.000], [2–3], [±240.000],
-  [3], [Mid-range new build], [±16.200.000], [5–6], [±2.900.000],
-  [4], [Primary workstation], [±34.800.000], [6–8 stacks], [±5.000.000],
+  [3], [Mid-range new build], [20.700.000 – 24.700.000], [5–6], [3.800.000 – 4.500.000],
+  [4], [Primary workstation], [48.400.000 – 56.400.000], [6 full-stack], [8.100.000 – 9.400.000],
 )
 
 Tier 2 is an order of magnitude cheaper per seat than anything new. It is also

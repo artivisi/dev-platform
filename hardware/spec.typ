@@ -549,6 +549,59 @@ volumes sprawl, UPS battery replacement at year two.
   realistic risk for this use case.
 ]
 
+== Buying in two stages
+
+The box can be bought as a Tier 3 first and raised to Tier 4 later. Stage 1 is
+the parts list above less one RAM kit: ≈47,4M at these prices. With 64 GB it
+goes in the `tier3_mid` group — preflight's RAM check admits it to Tier 3 and
+refuses Tier 4 — and runs 5–6 seats under 10G ceilings: light stacks only, with
+the 9950X's extra cores going to concurrent builds.
+
+Stage 2 is the second kit, ≈13,5M at current prices, bought when a stack no
+longer fits in 10G. Install it, move the host to `tier4_primary` in the
+deployment's `hosts.ini`, and the next pull raises the ceilings to 20G. The seat
+count does not change; what changes is that each seat fits a full stack.
+
+- *Same part number for the second kit.* Two kits bought months apart are not
+  guaranteed to train together at four DIMMs; the DDR5-4800 / EXPO-off setting
+  in the commissioning steps below is the usual cure. Re-run MemTest86
+  overnight after the upgrade.
+- *Both NVMe drives in stage 1.* Adding the second disk later moves
+  `dev_docker_data_root`; the playbook does not migrate existing image stores,
+  so images are re-pulled and volumes copied by hand.
+- *Not a cheaper CPU first.* A 9700X now and a 9950X later saves ≈4M and leaves
+  a spare CPU; at 5–6 seats the 9700X is the binding constraint.
+- *RAM price risk.* A 2×32 GB kit went from 8–12M on 2026-09-22 to 13,5–15,5M
+  on 2026-10-11; deferring the second kit is a bet against that trend.
+
+== Reference listings
+
+Tokopedia listings behind the estimates, checked 2026-10-11. Chosen by sold
+count and rating; a listing with sales but no reviews priced far below the rest
+is a stale price, not a bargain. Listings go stale — re-check before ordering.
+
+#table(
+  columns: (auto, 1fr, auto, auto),
+  align: (left, left, right, right),
+  table.header([Part], [Listing], [IDR], [Sold]),
+  [Ryzen 9 9950X (box)], [#link("https://www.tokopedia.com/distributorpc/processor-amd-ryzen-9-9950x-16core-32thread-up-to-5-70ghz-socket-am5-box-1731960334625965376")[distributorkomputer]], [9.499.000], [25],
+  [Peerless Assassin 120 SE], [#link("https://www.tokopedia.com/d-m-i/thermalright-peerless-assassin-120-se-120mm-pwm-high-performance-air-cpu-cooler-for-intel-amd-1731488663748248746")[Duta Mandiri Infokom]], [565.000], [90+],
+  [MSI MAG B650 Tomahawk WiFi], [#link("https://www.tokopedia.com/queenprocessor/msi-mag-b650-tomahawk-wifi-ddr5-am5")[QueenProcessor]], [3.764.001], [5],
+  [ASUS TUF B650-Plus WiFi], [#link("https://www.tokopedia.com/cockomputer/asus-tuf-gaming-b650-plus-wifi")[COC Komputer]], [4.203.342], [14],
+  [Kingston KF556C36BBEK2-64], [#link("https://www.tokopedia.com/maxcom-online/kingston-fury-beast-ddr5-64gb-2x32-5600mhz-kf556c36bbek2-64-1731363343215855294")[MAXCOM ONLINE]], [13.452.028], [0],
+  [WD SN850X 2 TB], [#link("https://www.tokopedia.com/jayapc/wd-black-ssd-sn850x-m-2-pcie-gen4-nvme-2280-2tb-wd-black-m2-2-tb")[Jaya PC]], [6.400.000], [100+],
+  [Kingston KC3000 2 TB], [#link("https://www.tokopedia.com/cockomputer/kingston-kc3000-2tb-pcie-4-0-nvme-m-2-ssd")[COC Komputer]], [7.315.000], [50+],
+  [Corsair RM850e], [#link("https://www.tokopedia.com/distributorpc/corsair-power-supply-rm850e-rme850-850w-80-gold-atx3-1-pcie-5-0-fully-modular-psu-1731249484972393792")[distributorkomputer]], [2.120.600], [25],
+  [Corsair RM850x], [#link("https://www.tokopedia.com/distributorpc/corsair-rm850x-rmx850-cybenetics-gold-fully-modular-atx-3-1-pcie-5-1-low-noise")[distributorkomputer]], [2.538.280], [27],
+  [be quiet! Silent Base 802], [#link("https://www.tokopedia.com/cockomputer/be-quiet-gaming-case-silent-base-802-black-with-side-window")[COC Komputer]], [2.690.080], [1],
+  [APC BX1200MI-MS], [#link("https://www.tokopedia.com/apc-authorized-store/ups-apc-back-ups-bx-1200va-650w-bx1200mi-ms")[APC Authorized Store]], [2.197.880], [100+],
+)
+
+The RAM listing had stock (66) but no recorded sales; Kingston's official store
+lists the same kit at 23.190.000, out of stock. The Silent Base 802 listed is the
+window variant — the glass side is the one panel without a dampening mat; the
+solid-panel variant was not listed.
+
 == Platform choice: why Ryzen, not Intel
 
 The Intel alternatives at this price point were the Core i9-14900K (Raptor

@@ -7,13 +7,13 @@
   subtitle: "Capacity model & build tiers — salvage to primary",
   client: "Infrastructure Team",
   client-detail: "Procurement, assembly & triage",
-  date: "22 September 2026",
+  date: "11 October 2026",
   badge: "TECHNICAL SPECIFICATION",
   prepared-for-label: "PREPARED FOR",
   lang: "en",
   metadata: (
     ("Tier", "0 salvage · 1 compact · 2 upgraded · 3 mid · 4 primary"),
-    ("Cost range", "0 – 56.4 million IDR per box"),
+    ("Cost range", "0 – 64.9 million IDR per box"),
     ("Capacity unit", "Seat & stack"),
     ("Companion documents", "Setup Guide · Developer Guide"),
   ),
@@ -464,14 +464,14 @@ spot-check before ordering.
   align: (left, left, right),
   table.header([Component], [Part], [Est. IDR]),
   [CPU], [AMD Ryzen 7 9700X (8c/16t, iGPU)], [5.500.000],
-  [Cooler], [Thermalright Peerless Assassin 120 SE], [700.000],
+  [Cooler], [Thermalright Peerless Assassin 120 SE], [550.000],
   [Motherboard], [B650, 2.5GbE (MSI MAG / ASUS TUF class)], [2.500.000],
-  [RAM], [64 GB DDR5-5600 (2×32 GB)], [8.000.000 – 12.000.000],
+  [RAM], [64 GB DDR5-5600 (2×32 GB kit)], [13.500.000 – 15.500.000],
   [Storage], [1 TB NVMe Gen4], [1.300.000],
   [PSU], [650 W 80+ Gold], [1.200.000],
   [Case], [Mid-tower, sound-dampened, 2×140 mm], [1.500.000],
   table.cell(fill: rgb("#eef0f9"))[*Total*], table.cell(fill: rgb("#eef0f9"))[],
-  table.cell(fill: rgb("#eef0f9"))[*≈ 20.700.000 – 24.700.000*],
+  table.cell(fill: rgb("#eef0f9"))[*≈ 26.050.000 – 28.050.000*],
 )
 
 #capacity-card(
@@ -505,17 +505,17 @@ cloud VMs; this box, like every other tier, is for functional correctness only.
   columns: (auto, 1fr, auto),
   align: (left, left, right),
   table.header([Component], [Part], [Est. IDR]),
-  [CPU], [AMD Ryzen 9 9950X (16c/32t, iGPU — no discrete GPU)], [10.000.000],
-  [Cooler], [Thermalright Peerless Assassin 120 SE], [700.000],
+  [CPU], [AMD Ryzen 9 9950X (16c/32t, iGPU — no discrete GPU)], [9.500.000],
+  [Cooler], [Thermalright Peerless Assassin 120 SE], [550.000],
   [Motherboard], [MSI MAG B650 Tomahawk WiFi or ASUS TUF B650-Plus (2.5GbE, solid VRM)], [4.000.000],
-  [RAM], [128 GB DDR5-5600 (4×32 GB, e.g. Kingston Fury Beast)], [16.000.000 – 24.000.000],
-  [Storage 1], [2 TB NVMe Gen4 (WD SN850X / Kingston KC3000) — OS + repos], [4.800.000],
-  [Storage 2], [2 TB NVMe Gen4 (same class) — Docker images/volumes + scratch], [4.800.000],
-  [PSU], [850 W 80+ Gold, semi-passive zero-RPM (Corsair RM850e / be quiet! Pure Power 12 M)], [2.000.000],
-  [Case], [Fractal Define 7 (sound-dampened, 3×140 mm fans included, external front filter)], [3.800.000],
-  [UPS], [1200 VA line-interactive with AVR (APC BX1200MI class)], [2.300.000],
+  [RAM], [128 GB DDR5-5600 (2 × 2×32 GB kits, e.g. Kingston Fury Beast KF556C36BBEK2-64)], [26.900.000 – 31.000.000],
+  [Storage 1], [2 TB NVMe Gen4 (WD SN850X / Kingston KC3000) — OS + repos], [6.400.000],
+  [Storage 2], [2 TB NVMe Gen4 (same class) — Docker images/volumes + scratch], [6.400.000],
+  [PSU], [850 W 80+ Gold, semi-passive zero-RPM (Corsair RM850e / RM850x)], [2.100.000],
+  [Case], [be quiet! Silent Base 802 (sound-dampened, 3×140 mm fans included, silent and mesh front panels)], [2.700.000],
+  [UPS], [1200 VA line-interactive with AVR (APC BX1200MI class)], [2.250.000],
   table.cell(fill: rgb("#eef0f9"))[*Total*], table.cell(fill: rgb("#eef0f9"))[],
-  table.cell(fill: rgb("#eef0f9"))[*≈ 48.400.000 – 56.400.000*],
+  table.cell(fill: rgb("#eef0f9"))[*≈ 60.800.000 – 64.900.000*],
 )
 
 #capacity-card(
@@ -535,8 +535,11 @@ only under Tier 3's 10G ceilings, which no full stack fits under — and a box h
 one ceiling for every seat. More light seats are cheaper as two Tier 3 boxes,
 which also keep working when one fails.
 
-Against a 50M envelope: ≈1,6M left at the bottom of the RAM price range, ≈6,4M
-over at the top. Upgrade paths if needed later: a third 2 TB NVMe when Docker
+Against a 50M envelope: ≈10,8M over at the bottom of the RAM price range,
+≈14,9M at the top. RAM is ≈27–31M of the total, more than everything else in the
+box combined; the rest sums to ≈33,9M. Prices were checked on Tokopedia on
+2026-10-11 against listings with sales and ratings; the RAM range is two
+distributors with stock but no recorded sales yet. Upgrade paths if needed later: a third 2 TB NVMe when Docker
 volumes sprawl, UPS battery replacement at year two.
 
 #note[
@@ -677,8 +680,8 @@ will not warn you about.
   [0], [Salvage, as found], [0], [1 seq.], [0],
   [1], [16 GB desktop, as found], [0], [2–3 light], [0],
   [2], [Salvage + 32 GB DDR3], [±600.000], [2–3], [±240.000],
-  [3], [Mid-range new build], [20.700.000 – 24.700.000], [5–6], [3.800.000 – 4.500.000],
-  [4], [Primary workstation], [48.400.000 – 56.400.000], [6 full-stack], [8.100.000 – 9.400.000],
+  [3], [Mid-range new build], [26.050.000 – 28.050.000], [5–6], [4.700.000 – 5.100.000],
+  [4], [Primary workstation], [60.800.000 – 64.900.000], [6 full-stack], [10.100.000 – 10.800.000],
 )
 
 Tier 2 is an order of magnitude cheaper per seat than anything new. It is also

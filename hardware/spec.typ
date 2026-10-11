@@ -552,23 +552,26 @@ volumes sprawl, UPS battery replacement at year two.
 == Buying in two stages
 
 The box can be bought as a Tier 3 first and raised to Tier 4 later. Stage 1 is
-the parts list above less one RAM kit: ≈47,4M at these prices. With 64 GB it
+the parts list above less one RAM kit and one NVMe: ≈41M at these prices. With 64 GB it
 goes in the `tier3_mid` group — preflight's RAM check admits it to Tier 3 and
 refuses Tier 4 — and runs 5–6 seats under 10G ceilings: light stacks only, with
 the 9950X's extra cores going to concurrent builds.
 
-Stage 2 is the second kit, ≈13,5M at current prices, bought when a stack no
-longer fits in 10G. Install it, move the host to `tier4_primary` in the
-deployment's `hosts.ini`, and the next pull raises the ceilings to 20G. The seat
+Stage 2 is the second kit and the second NVMe, ≈19,9M at current prices, bought
+when a stack no longer fits in 10G. Install both, add the disk as the Setup
+Guide's `rootless_docker` section describes, move the host to `tier4_primary`
+in the deployment's `hosts.ini`, and the next pull raises the ceilings to 20G. The seat
 count does not change; what changes is that each seat fits a full stack.
 
 - *Same part number for the second kit.* Two kits bought months apart are not
   guaranteed to train together at four DIMMs; the DDR5-4800 / EXPO-off setting
   in the commissioning steps below is the usual cure. Re-run MemTest86
   overnight after the upgrade.
-- *Both NVMe drives in stage 1.* Adding the second disk later moves
-  `dev_docker_data_root`; the playbook does not migrate existing image stores,
-  so images are re-pulled and volumes copied by hand.
+- *The second NVMe no later than the second kit.* One disk works under Tier 3:
+  image stores sit in each home and count against the 120G quota. Tier 4's
+  300G quotas assume images on the second disk — six seats on one 2 TB disk
+  would promise 1,8 TB before any image is pulled. Moving the image stores
+  re-pulls every image through the mirror; Docker volumes are not carried over.
 - *Not a cheaper CPU first.* A 9700X now and a 9950X later saves ≈4M and leaves
   a spare CPU; at 5–6 seats the 9700X is the binding constraint.
 - *RAM price risk.* A 2×32 GB kit went from 8–12M on 2026-09-22 to 13,5–15,5M
@@ -660,7 +663,10 @@ anyway.
   # inventory/host_vars/<hostname>.yml (in the deployment)
   dev_docker_data_root: /srv/docker
   ```
-+ *Burn-in before trusting it:* MemTest86 overnight (full 128 GB, all passes),
+
+  A stage-1 box with one NVMe leaves `dev_docker_data_root` undeclared until
+  the second disk goes in.
++ *Burn-in before trusting it:* MemTest86 overnight (all installed RAM, all passes),
   then a day of the actual E2E suite on loop.
 + *Placement:* outside the bedroom, wired ethernet, front dust filter rinsed
   monthly (tropical dust + 24/7 duty).

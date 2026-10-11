@@ -731,6 +731,35 @@ checks for it rather than for a release.
   box's whole purpose is running several people's containers side by side.
 ]
 
+*Adding the data disk to a running box.* A box bought with one NVMe keeps
+`/srv` on the OS disk, and the registry mirror and the E2E account already have
+data there. Mounting a new disk over `/srv` would hide that data, so it is
+copied first, and `dev_docker_data_root` is declared only once the disk is
+mounted — a pull that ran before that would create `/srv/docker` on the OS disk.
+
+```bash
+lsblk                                   # find the new disk: here /dev/nvme1n1
+systemctl stop dev-platform-pull.timer 'e2e@*.timer' registry-mirror.service
+systemctl stop user@$(id -u e2e).service
+mkfs.ext4 -L data /dev/nvme1n1
+mount /dev/nvme1n1 /mnt && rsync -aHAX /srv/ /mnt/ && umount /mnt
+mv /srv /srv.old && mkdir /srv
+echo "UUID=$(blkid -s UUID -o value /dev/nvme1n1) /srv ext4 defaults 0 2" >> /etc/fstab
+mount /srv && ls /srv                   # registry  e2e
+reboot
+```
+
+Then declare `dev_docker_data_root: /srv/docker` in the box's `host_vars` in
+the deployment. On the next pull each user's daemon restarts on an empty store
+under `/srv/docker/<user>` and re-pulls through the mirror. The old stores stay
+in `~/.local/share/docker`, still counted against each user's quota; once users
+have copied out any Docker volumes they need, remove them, and `/srv.old`:
+
+```bash
+rm -rf /home/*/.local/share/docker /srv.old
+sudo -iu alice docker info --format '{{.DockerRootDir}}'   # /srv/docker/alice
+```
+
 *Verify.*
 
 ```bash
